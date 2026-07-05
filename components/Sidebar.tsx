@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { NavSection } from "@/lib/nav";
-import { cn } from "@/components/ui";
+import { cn, SubmitButton } from "@/components/ui";
 
 export default function Sidebar({
   companyName,
@@ -66,9 +66,9 @@ export default function Sidebar({
         <p className="text-sm font-semibold">{footer.name}</p>
         <p className="text-xs text-neutral-500">{footer.sub}</p>
         <form action={logout} className="mt-3">
-          <button type="submit" className="text-xs text-neutral-500 underline hover:text-brand-800">
+          <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
             ออกจากระบบ
-          </button>
+          </SubmitButton>
         </form>
       </div>
     </aside>

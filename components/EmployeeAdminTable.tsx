@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Th, Td, Tr, Badge, Empty, Modal, Field, Input, Select, Button, type Tone } from "@/components/ui";
+import { Th, Td, Tr, Badge, Empty, Modal, Field, Input, Select, Button, SubmitButton, type Tone } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import { updateEmployeeAction, setUserActiveAction } from "@/lib/actions";
 import type { Role } from "@/lib/types";
@@ -142,12 +142,9 @@ export default function EmployeeAdminTable({
                     <form action={setUserActiveAction}>
                       <input type="hidden" name="id" value={u.id} />
                       <input type="hidden" name="active" value={(!u.isActive).toString()} />
-                      <button
-                        type="submit"
-                        className="text-xs text-neutral-500 underline hover:text-brand-800"
-                      >
+                      <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
                         {u.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"}
-                      </button>
+                      </SubmitButton>
                     </form>
                   </div>
                 </Td>

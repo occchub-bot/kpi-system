@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { saveSelfAssessmentAction } from "@/lib/actions";
-import { Modal } from "@/components/ui";
+import { Modal, SubmitButton } from "@/components/ui";
 
 interface Item {
   id: string;
@@ -198,19 +198,19 @@ export default function SelfAssessmentEditor({
         <input type="hidden" name="items" value={JSON.stringify(items)} />
         <input type="hidden" name="remark" value={remark} />
         <div className="flex gap-2">
-          <button
-            type="submit" name="intent" value="save"
+          <SubmitButton
+            name="intent" value="save"
             className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
           >
             บันทึกร่าง
-          </button>
-          <button
-            type="submit" name="intent" value="submit"
+          </SubmitButton>
+          <SubmitButton
+            name="intent" value="submit"
             disabled={items.length === 0 || totalWeight !== 100}
             className="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
           >
             ส่งให้ผู้บังคับบัญชาประเมิน
-          </button>
+          </SubmitButton>
         </div>
         {items.length > 0 && totalWeight !== 100 && (
           <p className="mt-2 text-xs text-amber-600">

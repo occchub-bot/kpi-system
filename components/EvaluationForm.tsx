@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { saveEvaluationAction } from "@/lib/actions";
+import { SubmitButton } from "@/components/ui";
 
 interface ItemView {
   id: string;
@@ -102,12 +103,9 @@ export default function EvaluationForm({
           คะแนนสุดท้าย (ถ่วงน้ำหนัก):{" "}
           <span className="text-lg font-bold text-neutral-900">{preview.toFixed(1)}</span>
         </span>
-        <button
-          type="submit"
-          className="rounded-lg bg-brand-800 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
+        <SubmitButton className="rounded-lg bg-brand-800 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700">
           บันทึกผลประเมิน
-        </button>
+        </SubmitButton>
       </div>
     </form>
   );

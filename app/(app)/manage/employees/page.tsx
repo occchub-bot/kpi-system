@@ -47,7 +47,7 @@ export default async function EmployeesPage() {
   }));
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <PageTitle>พนักงาน</PageTitle>
 
       <Section title="เพิ่มพนักงาน">

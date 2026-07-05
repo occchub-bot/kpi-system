@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { loginAction } from "@/lib/actions";
 import { readDB } from "@/lib/store";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, Input, SubmitButton } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -55,15 +55,12 @@ export default async function LoginPage({
           {demo.map((u) => (
             <form key={u.id} action={loginAction}>
               <input type="hidden" name="email" value={u.email} />
-              <button
-                type="submit"
-                className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm hover:border-brand-200 hover:bg-brand-50"
-              >
+              <SubmitButton className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm hover:border-brand-200 hover:bg-brand-50">
                 <span className="font-medium">{u.name}</span>
                 <span className="text-xs text-neutral-400">
                   {roleLabel(u.role)} · {u.email}
                 </span>
-              </button>
+              </SubmitButton>
             </form>
           ))}
         </div>

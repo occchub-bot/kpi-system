@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useFormStatus } from "react-dom";
 
 export function cn(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
@@ -119,27 +122,66 @@ export function Tr({ children }: { children: ReactNode }) {
 }
 
 /* ---------------- buttons & links ---------------- */
+function Spinner({ className }: { className?: string }) {
+  return (
+    <svg className={cn("h-4 w-4 animate-spin", className)} viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+      />
+    </svg>
+  );
+}
+
 export function Button({
   children,
   type = "submit",
   variant = "primary",
   className,
+  disabled,
 }: {
   children: ReactNode;
   type?: "submit" | "button";
   variant?: "primary" | "outline";
   className?: string;
+  disabled?: boolean;
 }) {
+  const { pending } = useFormStatus();
+  const loading = type === "submit" && pending;
   return (
     <button
       type={type}
+      disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+        "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
         variant === "primary"
           ? "bg-brand-800 text-white hover:bg-brand-700"
           : "border border-neutral-300 text-neutral-700 hover:bg-neutral-100",
         className
       )}
+    >
+      {loading && <Spinner />}
+      {children}
+    </button>
+  );
+}
+
+/** สำหรับปุ่ม submit ที่มี layout/สไตล์เฉพาะตัว (ไม่ใช้สไตล์ของ Button) — disable + หรี่สีระหว่างส่งข้อมูล */
+export function SubmitButton({
+  children,
+  className,
+  disabled,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={disabled || pending}
+      className={cn(className, pending && "opacity-60 cursor-not-allowed")}
+      {...rest}
     >
       {children}
     </button>
