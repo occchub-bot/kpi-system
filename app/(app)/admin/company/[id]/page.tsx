@@ -3,6 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { addHRAction } from "@/lib/actions";
 import { roleLabel, roleTone } from "@/lib/nav";
+import { readDB } from "@/lib/store";
 import { PageTitle, Section, Stat, Card, Field, Input, Button, Th, Td, Tr, Score, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import EmployeeAdminTable, { type EmpRow } from "@/components/EmployeeAdminTable";
@@ -35,14 +36,15 @@ export default async function CompanyDetail({
   if (me.role !== "admin") redirect("/");
 
   const { id } = await params;
-  const company = getCompany(id);
+  const db = await readDB();
+  const company = getCompany(db, id);
   if (!company) notFound();
 
-  const users = usersOf(id);
-  const divisions = divisionsOf(id);
-  const departments = departmentsOf(id);
+  const users = usersOf(db, id);
+  const divisions = divisionsOf(db, id);
+  const departments = departmentsOf(db, id);
   const hrs = users.filter((u) => u.role === "hr");
-  const cycle = activeCycle(id);
+  const cycle = activeCycle(db, id);
 
   const empRows: EmpRow[] = users.map((u) => ({
     id: u.id,
@@ -50,10 +52,16 @@ export default async function CompanyDetail({
     position: u.position,
     empId: u.empId,
     email: u.email,
+    phone: u.phone,
+    role: u.role,
     roleLabel: roleLabel(u.role),
     roleTone: roleTone(u.role),
-    deptName: getDepartment(u.departmentId)?.name ?? getDivision(u.divisionId)?.name ?? "—",
-    managerName: userName(u.managerId),
+    divisionId: u.divisionId,
+    departmentId: u.departmentId,
+    managerId: u.managerId,
+    deptName: getDepartment(db, u.departmentId)?.name ?? getDivision(db, u.divisionId)?.name ?? "—",
+    managerName: userName(db, u.managerId),
+    isActive: u.isActive !== false,
   }));
 
   return (
@@ -67,7 +75,7 @@ export default async function CompanyDetail({
         <Stat label="พนักงาน" value={users.length} />
         <Stat label="ฝ่าย" value={divisions.length} />
         <Stat label="แผนก" value={departments.length} />
-        <Stat label="KPI เฉลี่ย" value={<Score value={cycle ? companyAvg(id, cycle.id) : null} />} />
+        <Stat label="KPI เฉลี่ย" value={<Score value={cycle ? companyAvg(db, id, cycle.id) : null} />} />
       </div>
 
       <Section title="เพิ่มอีเมล HR">
@@ -105,9 +113,9 @@ export default async function CompanyDetail({
             rows={divisions.map((d) => (
               <Tr key={d.id}>
                 <Td className="font-medium">{d.name}</Td>
-                <Td>{departmentsInDivision(d.id).length}</Td>
-                <Td>{usersInDivision(d.id).length}</Td>
-                <Td className="text-right"><Score value={cycle ? divisionAvg(d.id, cycle.id) : null} /></Td>
+                <Td>{departmentsInDivision(db, d.id).length}</Td>
+                <Td>{usersInDivision(db, d.id).length}</Td>
+                <Td className="text-right"><Score value={cycle ? divisionAvg(db, d.id, cycle.id) : null} /></Td>
               </Tr>
             ))}
           />
@@ -123,9 +131,9 @@ export default async function CompanyDetail({
             rows={departments.map((d) => (
               <Tr key={d.id}>
                 <Td className="font-medium">{d.name}</Td>
-                <Td className="text-neutral-500">{getDivision(d.divisionId)?.name}</Td>
-                <Td>{usersInDepartment(d.id).length}</Td>
-                <Td className="text-right"><Score value={cycle ? departmentAvg(d.id, cycle.id) : null} /></Td>
+                <Td className="text-neutral-500">{getDivision(db, d.divisionId)?.name}</Td>
+                <Td>{usersInDepartment(db, d.id).length}</Td>
+                <Td className="text-right"><Score value={cycle ? departmentAvg(db, d.id, cycle.id) : null} /></Td>
               </Tr>
             ))}
           />

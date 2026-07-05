@@ -2,10 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { mutate, newId, nowISO } from "./store";
+import { supabase } from "./supabase";
+import { newId, nowISO } from "./store";
+import { itemsToRows, toAssessmentItem } from "./mappers";
 import { getCurrentUser, setSession, clearSession, findUserByEmail } from "./auth";
 import { setFlash } from "./flash";
-import type { Assessment, AssessmentItem, Role } from "./types";
+import type { AssessmentItem, Role } from "./types";
 
 async function requireUser() {
   const u = await getCurrentUser();
@@ -21,10 +23,16 @@ function num(fd: FormData, k: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** throw ถ้า Supabase คืน error — โยนให้ error.tsx ของ Next.js จัดการ (กรณีนี้ไม่ควรเกิดถ้า schema ถูกต้อง) */
+function check<T extends { error: { message: string } | null }>(res: T): T {
+  if (res.error) throw new Error(`Supabase error: ${res.error.message}`);
+  return res;
+}
+
 /* ---------------- auth ---------------- */
 export async function loginAction(formData: FormData) {
   const email = s(formData, "email");
-  const user = findUserByEmail(email);
+  const user = await findUserByEmail(email);
   if (!user) {
     await setFlash("ไม่พบอีเมลนี้ในระบบ", "error");
     redirect("/login?error=1");
@@ -51,24 +59,25 @@ export async function addCompanyAction(formData: FormData) {
     return;
   }
 
-  mutate((db) => {
-    const companyId = newId("c");
-    db.companies.push({ id: companyId, name, createdAt: nowISO() });
-    db.users.push({
+  const companyId = newId("c");
+  check(await supabase.from("companies").insert({ id: companyId, name, created_at: nowISO() }));
+  check(
+    await supabase.from("users").insert({
       id: newId("u"),
-      companyId,
-      empId: "HR-000",
+      company_id: companyId,
+      emp_id: "HR-000",
       name: "HR",
       email: hrEmail,
       phone: "-",
       role: "hr",
-      divisionId: null,
-      departmentId: null,
+      division_id: null,
+      department_id: null,
       position: "เจ้าหน้าที่ฝ่ายบุคคล (HR)",
-      managerId: null,
-      createdAt: nowISO(),
-    });
-  });
+      manager_id: null,
+      is_active: true,
+      created_at: nowISO(),
+    })
+  );
   await setFlash(`เพิ่มบริษัท "${name}" แล้ว`);
   revalidatePath("/admin");
 }
@@ -82,22 +91,26 @@ export async function addHRAction(formData: FormData) {
     await setFlash("กรอกอีเมล HR ให้ครบ", "error");
     return;
   }
-  mutate((db) => {
-    db.users.push({
+  const { count } = check(
+    await supabase.from("users").select("id", { count: "exact", head: true }).eq("company_id", companyId)
+  );
+  check(
+    await supabase.from("users").insert({
       id: newId("u"),
-      companyId,
-      empId: "HR-" + String(db.users.filter((u) => u.companyId === companyId).length),
+      company_id: companyId,
+      emp_id: "HR-" + String(count ?? 0),
       name: "HR",
       email,
       phone: "-",
       role: "hr",
-      divisionId: null,
-      departmentId: null,
+      division_id: null,
+      department_id: null,
       position: "เจ้าหน้าที่ฝ่ายบุคคล (HR)",
-      managerId: null,
-      createdAt: nowISO(),
-    });
-  });
+      manager_id: null,
+      is_active: true,
+      created_at: nowISO(),
+    })
+  );
   await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว`);
   revalidatePath(`/admin/company/${companyId}`);
 }
@@ -111,14 +124,14 @@ export async function addDivisionAction(formData: FormData) {
     await setFlash("กรอกชื่อฝ่าย", "error");
     return;
   }
-  mutate((db) => {
-    db.divisions.push({
+  check(
+    await supabase.from("divisions").insert({
       id: newId("d"),
-      companyId: me.companyId!,
+      company_id: me.companyId,
       name,
-      headUserId: null,
-    });
-  });
+      head_user_id: null,
+    })
+  );
   await setFlash(`เพิ่มฝ่าย "${name}" แล้ว`);
   revalidatePath("/manage/divisions");
 }
@@ -132,17 +145,33 @@ export async function addDepartmentAction(formData: FormData) {
     await setFlash("เลือกฝ่ายและกรอกชื่อแผนก", "error");
     return;
   }
-  mutate((db) => {
-    db.departments.push({
+  check(
+    await supabase.from("departments").insert({
       id: newId("dep"),
-      companyId: me.companyId!,
-      divisionId,
+      company_id: me.companyId,
+      division_id: divisionId,
       name,
-      headUserId: null,
-    });
-  });
+      head_user_id: null,
+    })
+  );
   await setFlash(`เพิ่มแผนก "${name}" แล้ว`);
   revalidatePath("/manage/departments");
+}
+
+export async function updateDivisionAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const id = s(formData, "id");
+  const name = s(formData, "name");
+  if (!id || !name) {
+    await setFlash("กรอกชื่อฝ่าย", "error");
+    return;
+  }
+  check(
+    await supabase.from("divisions").update({ name }).eq("id", id).eq("company_id", me.companyId)
+  );
+  await setFlash("แก้ไขชื่อฝ่ายแล้ว");
+  revalidatePath("/manage/divisions");
 }
 
 export async function deleteDivisionAction(formData: FormData) {
@@ -151,21 +180,55 @@ export async function deleteDivisionAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const result = mutate((db): { ok: boolean; reason?: string } => {
-    const div = db.divisions.find((d) => d.id === id && d.companyId === me.companyId);
-    if (!div) return { ok: false, reason: "ไม่พบฝ่าย" };
-    if (db.departments.some((d) => d.divisionId === id)) {
-      return { ok: false, reason: "ลบไม่ได้ ยังมีแผนกอยู่ในฝ่ายนี้" };
-    }
-    if (db.users.some((u) => u.divisionId === id)) {
-      return { ok: false, reason: "ลบไม่ได้ ยังมีพนักงานอยู่ในฝ่ายนี้" };
-    }
-    db.divisions = db.divisions.filter((d) => d.id !== id);
-    return { ok: true };
-  });
+  const { data: div } = await supabase
+    .from("divisions")
+    .select("id")
+    .eq("id", id)
+    .eq("company_id", me.companyId)
+    .maybeSingle();
 
-  await setFlash(result.ok ? "ลบฝ่ายแล้ว" : result.reason ?? "ลบไม่ได้", result.ok ? "success" : "error");
+  let ok = false;
+  let reason = "ไม่พบฝ่าย";
+  if (div) {
+    const { count: depCount } = check(
+      await supabase.from("departments").select("id", { count: "exact", head: true }).eq("division_id", id)
+    );
+    const { count: userCount } = check(
+      await supabase.from("users").select("id", { count: "exact", head: true }).eq("division_id", id)
+    );
+    if (depCount) {
+      reason = "ลบไม่ได้ ยังมีแผนกอยู่ในฝ่ายนี้";
+    } else if (userCount) {
+      reason = "ลบไม่ได้ ยังมีพนักงานอยู่ในฝ่ายนี้";
+    } else {
+      check(await supabase.from("divisions").delete().eq("id", id));
+      ok = true;
+    }
+  }
+
+  await setFlash(ok ? "ลบฝ่ายแล้ว" : reason, ok ? "success" : "error");
   revalidatePath("/manage/divisions");
+}
+
+export async function updateDepartmentAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const id = s(formData, "id");
+  const name = s(formData, "name");
+  const divisionId = s(formData, "division_id");
+  if (!id || !name || !divisionId) {
+    await setFlash("กรอกชื่อแผนกและเลือกฝ่าย", "error");
+    return;
+  }
+  check(
+    await supabase
+      .from("departments")
+      .update({ name, division_id: divisionId })
+      .eq("id", id)
+      .eq("company_id", me.companyId)
+  );
+  await setFlash("แก้ไขแผนกแล้ว");
+  revalidatePath("/manage/departments");
 }
 
 export async function deleteDepartmentAction(formData: FormData) {
@@ -174,17 +237,28 @@ export async function deleteDepartmentAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const result = mutate((db): { ok: boolean; reason?: string } => {
-    const dep = db.departments.find((d) => d.id === id && d.companyId === me.companyId);
-    if (!dep) return { ok: false, reason: "ไม่พบแผนก" };
-    if (db.users.some((u) => u.departmentId === id)) {
-      return { ok: false, reason: "ลบไม่ได้ ยังมีพนักงานอยู่ในแผนกนี้" };
-    }
-    db.departments = db.departments.filter((d) => d.id !== id);
-    return { ok: true };
-  });
+  const { data: dep } = await supabase
+    .from("departments")
+    .select("id")
+    .eq("id", id)
+    .eq("company_id", me.companyId)
+    .maybeSingle();
 
-  await setFlash(result.ok ? "ลบแผนกแล้ว" : result.reason ?? "ลบไม่ได้", result.ok ? "success" : "error");
+  let ok = false;
+  let reason = "ไม่พบแผนก";
+  if (dep) {
+    const { count: userCount } = check(
+      await supabase.from("users").select("id", { count: "exact", head: true }).eq("department_id", id)
+    );
+    if (userCount) {
+      reason = "ลบไม่ได้ ยังมีพนักงานอยู่ในแผนกนี้";
+    } else {
+      check(await supabase.from("departments").delete().eq("id", id));
+      ok = true;
+    }
+  }
+
+  await setFlash(ok ? "ลบแผนกแล้ว" : reason, ok ? "success" : "error");
   revalidatePath("/manage/departments");
 }
 
@@ -205,33 +279,107 @@ export async function addEmployeeAction(formData: FormData) {
     return;
   }
 
-  mutate((db) => {
-    const id = newId("u");
-    db.users.push({
+  const id = newId("u");
+  check(
+    await supabase.from("users").insert({
       id,
-      companyId: me.companyId!,
-      empId: empId || id.toUpperCase(),
+      company_id: me.companyId,
+      emp_id: empId || id.toUpperCase(),
       name,
       email,
       phone: phone || "-",
       role,
-      divisionId,
-      departmentId,
+      division_id: divisionId,
+      department_id: departmentId,
       position: position || "พนักงาน",
-      managerId,
-      createdAt: nowISO(),
-    });
-    // ตั้งเป็นหัวหน้าหน่วยงานอัตโนมัติตาม role
-    if (role === "dept_manager" && departmentId) {
-      const dep = db.departments.find((d) => d.id === departmentId);
-      if (dep && !dep.headUserId) dep.headUserId = id;
+      manager_id: managerId,
+      is_active: true,
+      created_at: nowISO(),
+    })
+  );
+
+  // ตั้งเป็นหัวหน้าหน่วยงานอัตโนมัติตาม role (เฉพาะกรณีหน่วยงานยังไม่มีหัวหน้า)
+  if (role === "dept_manager" && departmentId) {
+    const { data: dep } = await supabase
+      .from("departments")
+      .select("head_user_id")
+      .eq("id", departmentId)
+      .maybeSingle();
+    if (dep && !dep.head_user_id) {
+      await supabase.from("departments").update({ head_user_id: id }).eq("id", departmentId);
     }
-    if (role === "division_head" && divisionId) {
-      const div = db.divisions.find((d) => d.id === divisionId);
-      if (div && !div.headUserId) div.headUserId = id;
+  }
+  if (role === "division_head" && divisionId) {
+    const { data: div } = await supabase
+      .from("divisions")
+      .select("head_user_id")
+      .eq("id", divisionId)
+      .maybeSingle();
+    if (div && !div.head_user_id) {
+      await supabase.from("divisions").update({ head_user_id: id }).eq("id", divisionId);
     }
-  });
+  }
+
   await setFlash(`เพิ่มพนักงาน "${name}" แล้ว`);
+  revalidatePath("/manage/employees");
+}
+
+/** HR แก้ไขข้อมูลพนักงาน (ไม่รวมสถานะ active — แยกไปที่ setUserActiveAction) */
+export async function updateEmployeeAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const id = s(formData, "id");
+  const name = s(formData, "name");
+  const email = s(formData, "email");
+  const phone = s(formData, "phone");
+  const empId = s(formData, "emp_id");
+  const role = (s(formData, "role") || "employee") as Role;
+  const divisionId = s(formData, "division_id") || null;
+  const departmentId = s(formData, "department_id") || null;
+  const position = s(formData, "position");
+  const managerId = s(formData, "manager_id") || null;
+  if (!id || !name || !email) {
+    await setFlash("กรอกชื่อและอีเมลพนักงานให้ครบ", "error");
+    return;
+  }
+
+  check(
+    await supabase
+      .from("users")
+      .update({
+        name,
+        email,
+        phone: phone || "-",
+        ...(empId ? { emp_id: empId } : {}),
+        role,
+        division_id: divisionId,
+        department_id: departmentId,
+        position: position || "พนักงาน",
+        manager_id: managerId,
+      })
+      .eq("id", id)
+      .eq("company_id", me.companyId)
+  );
+  await setFlash(`แก้ไขข้อมูล "${name}" แล้ว`);
+  revalidatePath("/manage/employees");
+}
+
+/** HR เปิด/ปิดใช้งานพนักงาน — พนักงานที่ปิดใช้งานจะไม่ถูกนำคะแนนมาคิดเฉลี่ย (ลบไม่ได้ ทำได้แค่ปิดใช้งาน) */
+export async function setUserActiveAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const id = s(formData, "id");
+  const active = s(formData, "active") === "true";
+  if (!id) return;
+
+  check(
+    await supabase
+      .from("users")
+      .update({ is_active: active })
+      .eq("id", id)
+      .eq("company_id", me.companyId)
+  );
+  await setFlash(active ? "เปิดใช้งานพนักงานแล้ว" : "ปิดใช้งานพนักงานแล้ว");
   revalidatePath("/manage/employees");
 }
 
@@ -245,21 +393,21 @@ export async function addCycleAction(formData: FormData) {
     await setFlash("กรอกชื่อรอบประเมิน", "error");
     return;
   }
-  mutate((db) => {
-    if (active) {
-      db.cycles.forEach((c) => {
-        if (c.companyId === me.companyId) c.active = false;
-      });
-    }
-    db.cycles.push({
+  if (active) {
+    check(
+      await supabase.from("cycles").update({ active: false }).eq("company_id", me.companyId)
+    );
+  }
+  check(
+    await supabase.from("cycles").insert({
       id: newId("cy"),
-      companyId: me.companyId!,
+      company_id: me.companyId,
       name,
       year,
       active,
-      createdAt: nowISO(),
-    });
-  });
+      created_at: nowISO(),
+    })
+  );
   await setFlash(`สร้างรอบประเมิน "${name}" แล้ว`);
   revalidatePath("/manage/cycles");
 }
@@ -273,19 +421,19 @@ export async function addOrgKpiAction(formData: FormData) {
     await setFlash("กรอกหัวข้อ KPI", "error");
     return;
   }
-  mutate((db) => {
-    db.kpis.push({
+  check(
+    await supabase.from("kpis").insert({
       id: newId("k"),
-      companyId: me.companyId!,
+      company_id: me.companyId,
       level: "org",
       title,
-      divisionId: null,
-      departmentId: null,
-      parentKpiId: null,
-      createdById: me.id,
-      createdAt: nowISO(),
-    });
-  });
+      division_id: null,
+      department_id: null,
+      parent_kpi_id: null,
+      created_by_id: me.id,
+      created_at: nowISO(),
+    })
+  );
   await setFlash("เพิ่ม KPI องค์กรแล้ว");
   revalidatePath("/manage/org-kpi");
 }
@@ -301,33 +449,35 @@ export async function addUnitKpiAction(formData: FormData) {
     return;
   }
 
-  mutate((db) => {
-    if (me.role === "division_head" && me.divisionId) {
-      db.kpis.push({
+  if (me.role === "division_head" && me.divisionId) {
+    check(
+      await supabase.from("kpis").insert({
         id: newId("k"),
-        companyId: me.companyId!,
+        company_id: me.companyId,
         level: "division",
         title,
-        divisionId: me.divisionId,
-        departmentId: null,
-        parentKpiId,
-        createdById: me.id,
-        createdAt: nowISO(),
-      });
-    } else if (me.role === "dept_manager" && me.departmentId) {
-      db.kpis.push({
+        division_id: me.divisionId,
+        department_id: null,
+        parent_kpi_id: parentKpiId,
+        created_by_id: me.id,
+        created_at: nowISO(),
+      })
+    );
+  } else if (me.role === "dept_manager" && me.departmentId) {
+    check(
+      await supabase.from("kpis").insert({
         id: newId("k"),
-        companyId: me.companyId!,
+        company_id: me.companyId,
         level: "department",
         title,
-        divisionId: me.divisionId,
-        departmentId: me.departmentId,
-        parentKpiId,
-        createdById: me.id,
-        createdAt: nowISO(),
-      });
-    }
-  });
+        division_id: me.divisionId,
+        department_id: me.departmentId,
+        parent_kpi_id: parentKpiId,
+        created_by_id: me.id,
+        created_at: nowISO(),
+      })
+    );
+  }
   await setFlash("เพิ่ม KPI แล้ว");
   revalidatePath("/manage/unit-kpi");
 }
@@ -363,6 +513,14 @@ function parseItems(raw: string): AssessmentItem[] {
   }));
 }
 
+/** เขียน assessment_items ทั้งหมดใหม่ (ลบของเดิมแล้ว insert ชุดใหม่ — ง่ายและถูกต้องกว่า diff เป็นรายแถว) */
+async function replaceAssessmentItems(assessmentId: string, items: AssessmentItem[]) {
+  check(await supabase.from("assessment_items").delete().eq("assessment_id", assessmentId));
+  if (items.length > 0) {
+    check(await supabase.from("assessment_items").insert(itemsToRows(assessmentId, items)));
+  }
+}
+
 /** บันทึก/ส่ง การประเมินตนเองของผู้ใช้ปัจจุบันในรอบที่กำหนด */
 export async function saveSelfAssessmentAction(formData: FormData) {
   const me = await requireUser();
@@ -384,44 +542,60 @@ export async function saveSelfAssessmentAction(formData: FormData) {
     }
   }
 
-  mutate((db) => {
-    let a = db.assessments.find((x) => x.userId === me.id && x.cycleId === cycleId);
-    const selfTotal = weighted(items.map((i) => ({ weight: i.weight, score: i.selfScore })));
-    if (!a) {
-      a = {
-        id: newId("as"),
-        companyId: me.companyId!,
-        cycleId,
-        userId: me.id,
-        evaluatorId: me.managerId,
-        items,
+  const selfTotal = weighted(items.map((i) => ({ weight: i.weight, score: i.selfScore })));
+
+  const { data: existingRow } = await supabase
+    .from("assessments")
+    .select("*")
+    .eq("user_id", me.id)
+    .eq("cycle_id", cycleId)
+    .maybeSingle();
+
+  if (!existingRow) {
+    const id = newId("as");
+    check(
+      await supabase.from("assessments").insert({
+        id,
+        company_id: me.companyId,
+        cycle_id: cycleId,
+        user_id: me.id,
+        evaluator_id: me.managerId,
         remark,
         status: submit ? "submitted" : "draft",
-        selfTotal,
-        finalScore: null,
-        submittedAt: submit ? nowISO() : null,
-        evaluatedAt: null,
-        createdAt: nowISO(),
-        updatedAt: nowISO(),
-      };
-      db.assessments.push(a);
-    } else {
-      // เก็บคะแนนหัวหน้าเดิมไว้ถ้ามีการประเมินแล้ว
-      const prevEval = new Map(a.items.map((it) => [it.id, it]));
-      a.items = items.map((it) => {
-        const p = prevEval.get(it.id);
-        return p ? { ...it, evalScore: p.evalScore, evalComment: p.evalComment } : it;
-      });
-      a.evaluatorId = me.managerId;
-      a.selfTotal = selfTotal;
-      a.remark = remark;
-      a.updatedAt = nowISO();
-      if (submit) {
-        a.status = "submitted";
-        a.submittedAt = nowISO();
-      }
+        self_total: selfTotal,
+        final_score: null,
+        submitted_at: submit ? nowISO() : null,
+        evaluated_at: null,
+        created_at: nowISO(),
+        updated_at: nowISO(),
+      })
+    );
+    await replaceAssessmentItems(id, items);
+  } else {
+    // เก็บคะแนนหัวหน้าเดิมไว้ถ้ามีการประเมินแล้ว
+    const { data: prevItemRows } = await supabase
+      .from("assessment_items")
+      .select("*")
+      .eq("assessment_id", existingRow.id);
+    const prevEval = new Map((prevItemRows ?? []).map(toAssessmentItem).map((it) => [it.id, it]));
+    const mergedItems = items.map((it) => {
+      const p = prevEval.get(it.id);
+      return p ? { ...it, evalScore: p.evalScore, evalComment: p.evalComment } : it;
+    });
+
+    const patch: Record<string, unknown> = {
+      evaluator_id: me.managerId,
+      self_total: selfTotal,
+      remark,
+    };
+    if (submit) {
+      patch.status = "submitted";
+      patch.submitted_at = nowISO();
     }
-  });
+    check(await supabase.from("assessments").update(patch).eq("id", existingRow.id));
+    await replaceAssessmentItems(existingRow.id, mergedItems);
+  }
+
   await setFlash(submit ? "ส่งให้ผู้บังคับบัญชาประเมินแล้ว" : "บันทึกร่างแล้ว");
   revalidatePath("/me/kpi");
   revalidatePath("/me");
@@ -440,34 +614,84 @@ export async function saveEvaluationAction(formData: FormData) {
     scores = {};
   }
 
-  const result = mutate((db): { ok: boolean; name?: string; score?: number | null } => {
-    const a = db.assessments.find((x) => x.id === assessmentId);
-    if (!a) return { ok: false };
+  const { data: aRow } = await supabase
+    .from("assessments")
+    .select("*")
+    .eq("id", assessmentId)
+    .maybeSingle();
+
+  let ok = false;
+  let ownerName: string | undefined;
+  let finalScore: number | null = null;
+
+  if (aRow) {
+    const { data: owner } = await supabase
+      .from("users")
+      .select("id, name, manager_id")
+      .eq("id", aRow.user_id)
+      .maybeSingle();
+
     // ตรวจสิทธิ์: ต้องเป็นหัวหน้าของเจ้าของรายการ
-    const owner = db.users.find((u) => u.id === a.userId);
-    if (!owner || owner.managerId !== me.id) return { ok: false };
+    if (owner && owner.manager_id === me.id) {
+      const { data: itemRows } = await supabase
+        .from("assessment_items")
+        .select("*")
+        .eq("assessment_id", assessmentId);
+      const items = (itemRows ?? []).map(toAssessmentItem).map((it) => {
+        const v = scores[it.id];
+        return v ? { ...it, evalScore: Number(v.score) || 0, evalComment: v.comment ?? "" } : it;
+      });
+      finalScore = weighted(items.map((i) => ({ weight: i.weight, score: i.evalScore })));
 
-    a.items = a.items.map((it) => {
-      const v = scores[it.id];
-      return v
-        ? { ...it, evalScore: Number(v.score) || 0, evalComment: v.comment ?? "" }
-        : it;
-    });
-    a.finalScore = weighted(a.items.map((i) => ({ weight: i.weight, score: i.evalScore })));
-    a.status = "evaluated";
-    a.evaluatedAt = nowISO();
-    a.evaluatorId = me.id;
-    return { ok: true, name: owner.name, score: a.finalScore };
-  });
+      check(
+        await supabase
+          .from("assessments")
+          .update({
+            status: "evaluated",
+            evaluated_at: nowISO(),
+            evaluator_id: me.id,
+            final_score: finalScore,
+          })
+          .eq("id", assessmentId)
+      );
+      await replaceAssessmentItems(assessmentId, items);
 
-  if (result.ok) {
-    await setFlash(
-      `บันทึกผลประเมิน ${result.name ?? ""} แล้ว (คะแนน ${result.score ?? "-"})`
-    );
+      ok = true;
+      ownerName = owner.name;
+    }
+  }
+
+  if (ok) {
+    await setFlash(`บันทึกผลประเมิน ${ownerName ?? ""} แล้ว (คะแนน ${finalScore ?? "-"})`);
   } else {
     await setFlash("ไม่สามารถบันทึกผลประเมินได้", "error");
   }
   revalidatePath("/evaluate");
   revalidatePath(`/evaluate/${assessmentId}`);
   revalidatePath("/dashboard");
+}
+
+/* ---------------- ประกาศจาก HR ---------------- */
+/** HR ส่งข้อความเดียวกันถึงพนักงานทุกคนในบริษัท */
+export async function sendAnnouncementAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const message = s(formData, "message");
+  if (!message) {
+    await setFlash("กรอกข้อความก่อนส่ง", "error");
+    return;
+  }
+
+  check(
+    await supabase.from("announcements").insert({
+      id: newId("ann"),
+      company_id: me.companyId,
+      message,
+      created_by_id: me.id,
+      created_at: nowISO(),
+    })
+  );
+  await setFlash("ส่งข้อความถึงพนักงานทุกคนแล้ว");
+  revalidatePath("/manage/announce");
+  revalidatePath("/", "layout");
 }

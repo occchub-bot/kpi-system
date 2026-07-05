@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import CycleSelect from "@/components/CycleSelect";
 import { PageTitle, Th, Td, Tr, Score, StatusTag, Empty, LinkButton } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
+import { readDB } from "@/lib/store";
 import {
   activeCycle,
   cyclesOf,
@@ -22,12 +23,13 @@ export default async function EvaluatePage({
   if (!me) redirect("/login");
   if (!me.companyId) redirect("/login");
 
+  const db = await readDB();
   const sp = await searchParams;
-  const cycleList = cyclesOf(me.companyId);
-  const cycle = (sp.cycle && getCycle(sp.cycle)) || activeCycle(me.companyId);
+  const cycleList = cyclesOf(db, me.companyId);
+  const cycle = (sp.cycle && getCycle(db, sp.cycle)) || activeCycle(db, me.companyId);
   if (!cycle) return <Empty>ยังไม่มีรอบประเมิน</Empty>;
 
-  const subs = subordinatesOf(me.id);
+  const subs = subordinatesOf(db, me.id);
 
   return (
     <div>
@@ -53,7 +55,7 @@ export default async function EvaluatePage({
             </>
           }
           rows={subs.map((u) => {
-            const a = assessmentOf(u.id, cycle.id);
+            const a = assessmentOf(db, u.id, cycle.id);
             const canEval = a && (a.status === "submitted" || a.status === "evaluated");
             return (
               <Tr key={u.id}>

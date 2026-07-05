@@ -14,6 +14,16 @@ export function roleLabel(role: Role): string {
   );
 }
 
+/**
+ * ชื่อระดับ KPI ที่ผู้ใช้แต่ละบทบาทเชื่อมต่อขึ้นไป
+ * employee → KPI แผนก · dept_manager → KPI ฝ่าย · ระดับอื่น (division_head/hr/ceo) → KPI องค์กร
+ */
+export function kpiLevelLabel(role: Role): string {
+  if (role === "employee") return "KPI แผนก";
+  if (role === "dept_manager") return "KPI ฝ่าย";
+  return "KPI องค์กร";
+}
+
 /** สีประจำบทบาท ใช้กับ Badge ในตารางพนักงาน */
 export function roleTone(role: Role): Tone {
   return (

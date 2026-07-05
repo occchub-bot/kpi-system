@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { addCompanyAction } from "@/lib/actions";
+import { readDB } from "@/lib/store";
 import { PageTitle, Section, Card, Field, Input, Button, Th, Td, Tr, Score, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import {
@@ -20,7 +21,8 @@ export default async function AdminPage() {
   if (!me) redirect("/login");
   if (me.role !== "admin") redirect("/");
 
-  const list = companies();
+  const db = await readDB();
+  const list = companies(db);
 
   return (
     <div>
@@ -52,15 +54,15 @@ export default async function AdminPage() {
               </>
             }
             rows={list.map((c) => {
-              const cycle = activeCycle(c.id);
+              const cycle = activeCycle(db, c.id);
               return (
                 <Tr key={c.id}>
                   <Td className="font-semibold">{c.name}</Td>
-                  <Td>{usersOf(c.id).length}</Td>
-                  <Td>{divisionsOf(c.id).length}</Td>
-                  <Td>{departmentsOf(c.id).length}</Td>
+                  <Td>{usersOf(db, c.id).length}</Td>
+                  <Td>{divisionsOf(db, c.id).length}</Td>
+                  <Td>{departmentsOf(db, c.id).length}</Td>
                   <Td className="text-right">
-                    <Score value={cycle ? companyAvg(c.id, cycle.id) : null} />
+                    <Score value={cycle ? companyAvg(db, c.id, cycle.id) : null} />
                   </Td>
                   <Td className="text-right">
                     <Link href={`/admin/company/${c.id}`} className="text-sm font-medium underline">

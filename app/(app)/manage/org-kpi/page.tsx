@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { addOrgKpiAction } from "@/lib/actions";
 import { PageTitle, Section, Card, Field, Input, Button, Empty } from "@/components/ui";
+import { readDB } from "@/lib/store";
 import { kpisOf } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,8 @@ export default async function OrgKpiPage() {
   if (!me) redirect("/login");
   if (me.role !== "hr" || !me.companyId) redirect("/");
 
-  const kpis = kpisOf(me.companyId, "org");
+  const db = await readDB();
+  const kpis = kpisOf(db, me.companyId, "org");
 
   return (
     <div className="max-w-3xl">

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { NavSection } from "@/lib/nav";
@@ -30,8 +31,8 @@ export default function Sidebar({
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r border-[var(--border)] bg-white">
       <div className="px-6 py-5">
-        <div className="mb-3 h-9 w-9 rounded bg-neutral-900" />
-        <p className="font-bold leading-tight">KPI System</p>
+        <Image src="/logo.png" alt="" width={36} height={36} className="mb-3 h-9 w-9" />
+        <p className="font-bold leading-tight text-brand-900">KPI System</p>
         <p className="text-xs text-neutral-500">{companyName}</p>
       </div>
 
@@ -49,8 +50,8 @@ export default function Sidebar({
                   className={cn(
                     "block rounded-lg px-3 py-2 text-sm transition-colors",
                     isActive(it.href)
-                      ? "bg-neutral-900 font-medium text-white"
-                      : "text-neutral-700 hover:bg-neutral-100"
+                      ? "bg-brand-800 font-medium text-white"
+                      : "text-neutral-700 hover:bg-brand-50"
                   )}
                 >
                   {it.label}
@@ -65,7 +66,7 @@ export default function Sidebar({
         <p className="text-sm font-semibold">{footer.name}</p>
         <p className="text-xs text-neutral-500">{footer.sub}</p>
         <form action={logout} className="mt-3">
-          <button type="submit" className="text-xs text-neutral-500 underline hover:text-neutral-900">
+          <button type="submit" className="text-xs text-neutral-500 underline hover:text-brand-800">
             ออกจากระบบ
           </button>
         </form>

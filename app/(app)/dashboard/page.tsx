@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import CycleSelect from "@/components/CycleSelect";
+import { readDB } from "@/lib/store";
+import YearSelect from "@/components/YearSelect";
 import MemberScoreTable, { type MemberRow } from "@/components/MemberScoreTable";
 import {
   PageTitle,
@@ -16,32 +17,32 @@ import {
 } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import {
-  activeCycle,
-  cyclesOf,
-  getCycle,
+  yearsOf,
   divisionsOf,
   departmentsOf,
   departmentsInDivision,
-  usersOf,
-  usersInDepartment,
-  usersInDivision,
+  activeUsersOf,
+  activeUsersInDepartment,
+  activeUsersInDivision,
   getDivision,
   getDepartment,
   getUser,
-  finalScoreOf,
-  departmentAvg,
-  divisionAvg,
-  companyAvg,
+  userScoreInYear,
+  departmentAvgYear,
+  divisionAvgYear,
+  companyAvgYear,
   kpisOf,
   bellCurve,
+  orgScoresForYear,
 } from "@/lib/queries";
+import type { DB } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ cycle?: string }>;
+  searchParams: Promise<{ year?: string }>;
 }) {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
@@ -49,34 +50,46 @@ export default async function DashboardPage({
   if (me.role === "admin") redirect("/admin");
   if (!me.companyId) redirect("/login");
 
+  const db = await readDB();
   const sp = await searchParams;
-  const cycleList = cyclesOf(me.companyId);
-  const cycle = (sp.cycle && getCycle(sp.cycle)) || activeCycle(me.companyId);
-  if (!cycle) {
+  const years = yearsOf(db, me.companyId);
+  if (years.length === 0) {
     return <Empty>ยังไม่มีรอบประเมิน</Empty>;
   }
+  const year = (sp.year && years.includes(Number(sp.year)) ? Number(sp.year) : years[0]);
 
-  const selector = (
-    <CycleSelect cycles={cycleList.map((c) => ({ id: c.id, name: c.name }))} value={cycle.id} />
+  const selector = <YearSelect years={years} value={year} />;
+
+  // Bell curve คิดจากคะแนนเฉลี่ยรายปีของพนักงาน active ทั้งองค์กรเสมอ ไม่ว่าจะดูจากมุมมองไหน
+  const orgBellCurve = (
+    <Section title="Bell Curve · กระจายตัวคะแนนทั้งองค์กร">
+      <Card className="px-6 py-6">
+        <BarChart data={bellCurve(orgScoresForYear(db, me.companyId, year))} />
+      </Card>
+    </Section>
   );
 
   /* ---------- ผจก.แผนก: พนักงานในแผนก ---------- */
   if (me.role === "dept_manager" && me.departmentId) {
-    const dept = getDepartment(me.departmentId);
-    const members = usersInDepartment(me.departmentId);
+    const dept = getDepartment(db, me.departmentId);
+    const members = activeUsersInDepartment(db, me.departmentId);
     const evaluatedCount = members.filter(
-      (m) => finalScoreOf(m.id, cycle.id) !== null
+      (m) => userScoreInYear(db, m.id, me.companyId!, year) !== null
     ).length;
     return (
       <div>
         <PageTitle right={selector}>Dashboard แผนก</PageTitle>
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="แผนก" value={<span className="text-base">{dept?.name}</span>} />
           <Stat label="จำนวนพนักงาน" value={members.length} />
           <Stat label="จำนวนพนักงานที่ได้รับการประเมินแล้ว" value={evaluatedCount} />
+          <Stat label="คะแนนเฉลี่ยแผนก" value={<Score value={departmentAvgYear(db, me.departmentId, me.companyId, year)} />} />
         </div>
+
+        {orgBellCurve}
+
         <Section title="พนักงานในแผนก">
-          <MembersTable userIds={members.map((m) => m.id)} cycleId={cycle.id} />
+          <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} />
         </Section>
       </div>
     );
@@ -84,13 +97,10 @@ export default async function DashboardPage({
 
   /* ---------- ผู้บริหารฝ่าย: AVG ฝ่าย + ทุกแผนก ---------- */
   if (me.role === "division_head" && me.divisionId) {
-    const div = getDivision(me.divisionId);
-    const depts = departmentsInDivision(me.divisionId);
-    const members = usersInDivision(me.divisionId);
-    const avg = divisionAvg(me.divisionId, cycle.id);
-    const scores = members
-      .map((m) => finalScoreOf(m.id, cycle.id))
-      .filter((x): x is number => x !== null);
+    const div = getDivision(db, me.divisionId);
+    const depts = departmentsInDivision(db, me.divisionId);
+    const members = activeUsersInDivision(db, me.divisionId);
+    const avg = divisionAvgYear(db, me.divisionId, me.companyId, year);
     return (
       <div>
         <PageTitle right={selector}>Dashboard ฝ่าย</PageTitle>
@@ -101,42 +111,35 @@ export default async function DashboardPage({
           <Stat label="คะแนนเฉลี่ยฝ่าย" value={<Score value={avg} />} />
         </div>
 
+        {orgBellCurve}
+
         <Section title="คะแนนเฉลี่ยรายแผนก">
           <PaginatedTable
             head={<><Th>แผนก</Th><Th>จำนวนพนักงาน</Th><Th>AVG</Th></>}
             rows={depts.map((d) => (
               <Tr key={d.id}>
                 <Td className="font-medium">{d.name}</Td>
-                <Td>{usersInDepartment(d.id).length}</Td>
-                <Td><Score value={departmentAvg(d.id, cycle.id)} /></Td>
+                <Td>{activeUsersInDepartment(db, d.id).length}</Td>
+                <Td><Score value={departmentAvgYear(db, d.id, me.companyId!, year)} /></Td>
               </Tr>
             ))}
           />
         </Section>
 
-        <Section title="Bell Curve · กระจายตัวคะแนน">
-          <Card className="px-6 py-6">
-            <BarChart data={bellCurve(scores)} />
-          </Card>
-        </Section>
-
         <Section title="รายบุคคล">
-          <MembersTable userIds={members.map((m) => m.id)} cycleId={cycle.id} />
+          <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} />
         </Section>
       </div>
     );
   }
 
   /* ---------- HR / CEO: ภาพรวมองค์กร ---------- */
-  const divisions = divisionsOf(me.companyId);
-  const departments = departmentsOf(me.companyId);
-  const allUsers = usersOf(me.companyId).filter((u) => u.role !== "hr" || u.id === me.id);
-  const everyone = usersOf(me.companyId);
-  const avg = companyAvg(me.companyId, cycle.id);
-  const orgKpis = kpisOf(me.companyId, "org");
-  const scores = everyone
-    .map((m) => finalScoreOf(m.id, cycle.id))
-    .filter((x): x is number => x !== null);
+  const divisions = divisionsOf(db, me.companyId);
+  const departments = departmentsOf(db, me.companyId);
+  const allActive = activeUsersOf(db, me.companyId).filter((u) => u.role !== "hr" || u.id === me.id);
+  const everyone = activeUsersOf(db, me.companyId);
+  const avg = companyAvgYear(db, me.companyId, year);
+  const orgKpis = kpisOf(db, me.companyId, "org");
 
   return (
     <div>
@@ -163,15 +166,17 @@ export default async function DashboardPage({
         )}
       </Section>
 
+      {orgBellCurve}
+
       <Section title="คะแนนเฉลี่ยรายฝ่าย">
         <PaginatedTable
           head={<><Th>ฝ่าย</Th><Th>จำนวนแผนก</Th><Th>จำนวนพนักงาน</Th><Th>AVG</Th></>}
           rows={divisions.map((d) => (
             <Tr key={d.id}>
               <Td className="font-medium">{d.name}</Td>
-              <Td>{departmentsInDivision(d.id).length}</Td>
-              <Td>{usersInDivision(d.id).length}</Td>
-              <Td><Score value={divisionAvg(d.id, cycle.id)} /></Td>
+              <Td>{departmentsInDivision(db, d.id).length}</Td>
+              <Td>{activeUsersInDivision(db, d.id).length}</Td>
+              <Td><Score value={divisionAvgYear(db, d.id, me.companyId!, year)} /></Td>
             </Tr>
           ))}
         />
@@ -183,48 +188,46 @@ export default async function DashboardPage({
           rows={departments.map((d) => (
             <Tr key={d.id}>
               <Td className="font-medium">{d.name}</Td>
-              <Td className="text-neutral-500">{getDivision(d.divisionId)?.name}</Td>
-              <Td>{usersInDepartment(d.id).length}</Td>
-              <Td><Score value={departmentAvg(d.id, cycle.id)} /></Td>
+              <Td className="text-neutral-500">{getDivision(db, d.divisionId)?.name}</Td>
+              <Td>{activeUsersInDepartment(db, d.id).length}</Td>
+              <Td><Score value={departmentAvgYear(db, d.id, me.companyId!, year)} /></Td>
             </Tr>
           ))}
         />
       </Section>
 
-      <Section title="Bell Curve · กระจายตัวคะแนน">
-        <Card className="px-6 py-6">
-          <BarChart data={bellCurve(scores)} />
-        </Card>
-      </Section>
-
       <Section title="คะแนนรายบุคคล">
-        <MembersTable userIds={allUsers.map((m) => m.id)} cycleId={cycle.id} showDept />
+        <MembersTable db={db} userIds={allActive.map((m) => m.id)} companyId={me.companyId} year={year} showDept />
       </Section>
     </div>
   );
 }
 
-/* ตารางสมาชิก + Final Score (ค้นหา/กรองได้) */
+/* ตารางสมาชิก + คะแนนเฉลี่ยรายปี (ค้นหา/กรองได้) */
 function MembersTable({
+  db,
   userIds,
-  cycleId,
+  companyId,
+  year,
   showDept = false,
 }: {
+  db: DB;
   userIds: string[];
-  cycleId: string;
+  companyId: string;
+  year: number;
   showDept?: boolean;
 }) {
   if (userIds.length === 0) return <Empty>ไม่มีพนักงาน</Empty>;
   const rows: MemberRow[] = userIds
-    .map((id) => getUser(id))
+    .map((id) => getUser(db, id))
     .filter((u): u is NonNullable<typeof u> => !!u)
     .map((u) => ({
       id: u.id,
       name: u.name,
       empId: u.empId,
       position: u.position,
-      deptName: getDepartment(u.departmentId)?.name ?? "—",
-      finalScore: finalScoreOf(u.id, cycleId),
+      deptName: getDepartment(db, u.departmentId)?.name ?? "—",
+      finalScore: userScoreInYear(db, u.id, companyId, year),
     }));
   return <MemberScoreTable rows={rows} showDept={showDept} />;
 }

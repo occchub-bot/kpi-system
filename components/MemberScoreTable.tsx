@@ -48,13 +48,13 @@ export default function MemberScoreTable({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="ค้นหา ชื่อ / EmpID / ตำแหน่ง"
-          className="flex-1 min-w-56 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900"
+          className="flex-1 min-w-56 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
         />
         {showDept && depts.length > 0 && (
           <select
             value={dept}
             onChange={(e) => setDept(e.target.value)}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900"
+            className="rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"
           >
             <option value="">ทุกแผนก</option>
             {depts.map((d) => <option key={d} value={d}>{d}</option>)}

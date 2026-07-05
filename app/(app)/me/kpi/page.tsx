@@ -3,6 +3,8 @@ import { getCurrentUser } from "@/lib/auth";
 import CycleSelect from "@/components/CycleSelect";
 import SelfAssessmentEditor from "@/components/SelfAssessmentEditor";
 import { PageTitle, Section, StatusTag, Empty } from "@/components/ui";
+import { kpiLevelLabel } from "@/lib/nav";
+import { readDB } from "@/lib/store";
 import {
   activeCycle,
   cyclesOf,
@@ -23,19 +25,15 @@ export default async function MyKpiPage({
   if (!me) redirect("/login");
   if (!me.companyId) redirect("/login");
 
+  const db = await readDB();
   const sp = await searchParams;
-  const cycleList = cyclesOf(me.companyId);
-  const cycle = (sp.cycle && getCycle(sp.cycle)) || activeCycle(me.companyId);
+  const cycleList = cyclesOf(db, me.companyId);
+  const cycle = (sp.cycle && getCycle(db, sp.cycle)) || activeCycle(db, me.companyId);
   if (!cycle) return <Empty>ยังไม่มีรอบประเมิน</Empty>;
 
-  const a = assessmentOf(me.id, cycle.id);
-  const linkable = linkableKpisFor(me).map((k) => ({ id: k.id, title: k.title }));
-  const linkLabel =
-    me.role === "employee"
-      ? "KPI แผนก"
-      : me.role === "dept_manager"
-        ? "KPI ฝ่าย"
-        : "KPI องค์กร";
+  const a = assessmentOf(db, me.id, cycle.id);
+  const linkable = linkableKpisFor(db, me).map((k) => ({ id: k.id, title: k.title }));
+  const linkLabel = `เชื่อมกับ ${kpiLevelLabel(me.role)}`;
 
   const initial =
     a?.items.map((it) => ({
@@ -61,7 +59,7 @@ export default async function MyKpiPage({
       <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-neutral-600">
         <StatusTag status={a?.status ?? "draft"} />
         <span>
-          ผู้บังคับบัญชาผู้ประเมิน: <span className="font-medium text-neutral-900">{userName(me.managerId)}</span>
+          ผู้บังคับบัญชาผู้ประเมิน: <span className="font-medium text-neutral-900">{userName(db, me.managerId)}</span>
         </span>
         {a?.status === "evaluated" && a.finalScore !== null && (
           <span>

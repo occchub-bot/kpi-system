@@ -13,6 +13,8 @@ import {
   LinkButton,
 } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
+import { kpiLevelLabel } from "@/lib/nav";
+import { readDB } from "@/lib/store";
 import {
   activeCycle,
   cyclesOf,
@@ -33,18 +35,14 @@ export default async function MyDashboard({
   if (!me) redirect("/login");
   if (!me.companyId) redirect("/login");
 
+  const db = await readDB();
   const sp = await searchParams;
-  const cycleList = cyclesOf(me.companyId);
-  const cycle = (sp.cycle && getCycle(sp.cycle)) || activeCycle(me.companyId);
+  const cycleList = cyclesOf(db, me.companyId);
+  const cycle = (sp.cycle && getCycle(db, sp.cycle)) || activeCycle(db, me.companyId);
   if (!cycle) return <Empty>ยังไม่มีรอบประเมิน</Empty>;
 
-  const a = assessmentOf(me.id, cycle.id);
-  const linkLabel =
-    me.role === "employee"
-      ? "KPI แผนก"
-      : me.role === "dept_manager"
-        ? "KPI ฝ่าย"
-        : "KPI องค์กร";
+  const a = assessmentOf(db, me.id, cycle.id);
+  const linkLabel = kpiLevelLabel(me.role);
 
   return (
     <div>
@@ -58,7 +56,7 @@ export default async function MyDashboard({
 
       <div className="mb-6 grid grid-cols-2 gap-4">
         <Stat label="AVG คะแนนของรอบประเมินนี้" value={<Score value={a?.finalScore ?? null} />} />
-        <Stat label="ผู้บังคับบัญชาผู้ประเมิน" value={<span className="text-base">{userName(me.managerId)}</span>} />
+        <Stat label="ผู้บังคับบัญชาผู้ประเมิน" value={<span className="text-base">{userName(db, me.managerId)}</span>} />
       </div>
 
       <Section title="รายการ KPI ของตนเอง">
@@ -88,7 +86,7 @@ export default async function MyDashboard({
                     <span className="mt-0.5 block text-xs font-normal text-neutral-400">Note: {it.selfComment}</span>
                   )}
                 </Td>
-                <Td className="text-neutral-500">{getKpi(it.linkedKpiId)?.title ?? "—"}</Td>
+                <Td className="text-neutral-500">{getKpi(db, it.linkedKpiId)?.title ?? "—"}</Td>
                 <Td className="text-neutral-500">{it.target || "—"}</Td>
                 <Td>{it.weight}%</Td>
                 <Td className="text-right">

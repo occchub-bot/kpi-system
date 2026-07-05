@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { addUnitKpiAction } from "@/lib/actions";
+import { readDB } from "@/lib/store";
 import { PageTitle, Section, Card, Field, Input, Select, Button, Th, Td, Tr, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import {
@@ -23,21 +24,22 @@ export default async function UnitKpiPage() {
   const isDept = me.role === "dept_manager" && me.departmentId;
   if (!isDiv && !isDept) redirect("/manage");
 
+  const db = await readDB();
   const title = isDiv ? "KPI ฝ่าย" : "KPI แผนก";
   const parentLabel = isDiv ? "เชื่อมกับ KPI องค์กร" : "เชื่อมกับ KPI ฝ่าย";
-  const unitName = isDiv ? getDivision(me.divisionId)?.name : getDepartment(me.departmentId)?.name;
+  const unitName = isDiv ? getDivision(db, me.divisionId)?.name : getDepartment(db, me.departmentId)?.name;
 
   // ตัวเลือก parent
   const parents = isDiv
-    ? kpisOf(me.companyId, "org")
+    ? kpisOf(db, me.companyId, "org")
     : me.divisionId
-      ? divisionKpis(me.divisionId)
+      ? divisionKpis(db, me.divisionId)
       : [];
 
   // รายการ KPI ของหน่วยงานนี้
   const list = isDiv
-    ? divisionKpis(me.divisionId!)
-    : departmentKpis(me.departmentId!);
+    ? divisionKpis(db, me.divisionId!)
+    : departmentKpis(db, me.departmentId!);
 
   return (
     <div className="max-w-3xl">
@@ -74,7 +76,7 @@ export default async function UnitKpiPage() {
             rows={list.map((k) => (
               <Tr key={k.id}>
                 <Td className="font-medium">{k.title}</Td>
-                <Td className="text-neutral-500">{getKpi(k.parentKpiId)?.title ?? "—"}</Td>
+                <Td className="text-neutral-500">{getKpi(db, k.parentKpiId)?.title ?? "—"}</Td>
               </Tr>
             ))}
           />

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { saveSelfAssessmentAction } from "@/lib/actions";
+import { Modal } from "@/components/ui";
 
 interface Item {
   id: string;
@@ -18,7 +19,7 @@ interface KpiOpt {
 }
 
 const inputCls =
-  "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900";
+  "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100";
 
 let seq = 0;
 const uid = () => `it-${Date.now().toString(36)}-${seq++}`;
@@ -51,12 +52,21 @@ export default function SelfAssessmentEditor({
   const [items, setItems] = useState<Item[]>(initial);
   const [draft, setDraft] = useState<Item>(emptyDraft());
   const [remark, setRemark] = useState(initialRemark);
+  const [overWeightMsg, setOverWeightMsg] = useState<string | null>(null);
 
   const kpiTitle = (id: string | null) =>
     id ? linkable.find((k) => k.id === id)?.title ?? "—" : "—";
 
   const addItem = () => {
     if (!draft.title.trim()) return;
+    const current = items.reduce((s, i) => s + (Number(i.weight) || 0), 0);
+    const next = current + (Number(draft.weight) || 0);
+    if (next > 100) {
+      setOverWeightMsg(
+        `น้ำหนักรวมจะกลายเป็น ${next}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักของรายการนี้ให้ไม่เกิน ${100 - current}%`
+      );
+      return;
+    }
     setItems((prev) => [...prev, { ...draft, id: uid() }]);
     setDraft(emptyDraft());
   };
@@ -150,7 +160,7 @@ export default function SelfAssessmentEditor({
             type="button"
             onClick={addItem}
             disabled={!draft.title.trim()}
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40"
+            className="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
           >
             + เพิ่มลงรายการ
           </button>
@@ -197,7 +207,7 @@ export default function SelfAssessmentEditor({
           <button
             type="submit" name="intent" value="submit"
             disabled={items.length === 0 || totalWeight !== 100}
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-40"
+            className="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
           >
             ส่งให้ผู้บังคับบัญชาประเมิน
           </button>
@@ -208,6 +218,10 @@ export default function SelfAssessmentEditor({
           </p>
         )}
       </form>
+
+      <Modal open={overWeightMsg !== null} onClose={() => setOverWeightMsg(null)} title="น้ำหนักเกิน 100%">
+        {overWeightMsg}
+      </Modal>
     </div>
   );
 }

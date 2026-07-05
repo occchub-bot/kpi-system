@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import { readFlashRaw } from "@/lib/flash";
 import FlashToaster from "@/components/FlashToaster";
@@ -7,6 +7,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "KPI System",
   description: "ระบบประเมิน KPI องค์กร",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#17305c",
 };
 
 export default async function RootLayout({

@@ -4,6 +4,7 @@ import { addEmployeeAction } from "@/lib/actions";
 import { roleLabel, roleTone } from "@/lib/nav";
 import { PageTitle, Section, Card, Field, Input, Select, Button } from "@/components/ui";
 import EmployeeAdminTable, { type EmpRow } from "@/components/EmployeeAdminTable";
+import { readDB } from "@/lib/store";
 import { divisionsOf, departmentsOf, usersOf, getDivision, getDepartment, userName } from "@/lib/queries";
 import type { Role } from "@/lib/types";
 
@@ -22,9 +23,10 @@ export default async function EmployeesPage() {
   if (!me) redirect("/login");
   if (me.role !== "hr" || !me.companyId) redirect("/");
 
-  const divisions = divisionsOf(me.companyId);
-  const departments = departmentsOf(me.companyId);
-  const users = usersOf(me.companyId);
+  const db = await readDB();
+  const divisions = divisionsOf(db, me.companyId);
+  const departments = departmentsOf(db, me.companyId);
+  const users = usersOf(db, me.companyId);
 
   const rows: EmpRow[] = users.map((u) => ({
     id: u.id,
@@ -32,10 +34,16 @@ export default async function EmployeesPage() {
     position: u.position,
     empId: u.empId,
     email: u.email,
+    phone: u.phone,
+    role: u.role,
     roleLabel: roleLabel(u.role),
     roleTone: roleTone(u.role),
-    deptName: getDepartment(u.departmentId)?.name ?? getDivision(u.divisionId)?.name ?? "—",
-    managerName: userName(u.managerId),
+    divisionId: u.divisionId,
+    departmentId: u.departmentId,
+    managerId: u.managerId,
+    deptName: getDepartment(db, u.departmentId)?.name ?? getDivision(db, u.divisionId)?.name ?? "—",
+    managerName: userName(db, u.managerId),
+    isActive: u.isActive !== false,
   }));
 
   return (
@@ -66,7 +74,7 @@ export default async function EmployeesPage() {
                 <option value="">— ไม่ระบุ —</option>
                 {departments.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {getDivision(d.divisionId)?.name} / {d.name}
+                    {getDivision(db, d.divisionId)?.name} / {d.name}
                   </option>
                 ))}
               </Select>
@@ -87,7 +95,14 @@ export default async function EmployeesPage() {
       </Section>
 
       <Section title="พนักงานทั้งหมด">
-        <EmployeeAdminTable rows={rows} />
+        <EmployeeAdminTable
+          rows={rows}
+          canManage
+          divisions={divisions.map((d) => ({ id: d.id, name: d.name }))}
+          departments={departments.map((d) => ({ id: d.id, name: d.name }))}
+          managers={users.map((u) => ({ id: u.id, name: `${u.name} (${u.position})` }))}
+          roleOptions={ROLES}
+        />
       </Section>
     </div>
   );

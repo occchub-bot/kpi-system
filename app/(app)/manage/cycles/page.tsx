@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { addCycleAction } from "@/lib/actions";
 import { PageTitle, Section, Card, Field, Input, Button, Th, Td, Tr, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
+import { readDB } from "@/lib/store";
 import { cyclesOf } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ export default async function CyclesPage() {
   if (!me) redirect("/login");
   if (me.role !== "hr" || !me.companyId) redirect("/");
 
-  const cycles = cyclesOf(me.companyId);
+  const db = await readDB();
+  const cycles = cyclesOf(db, me.companyId);
 
   return (
     <div className="max-w-3xl">
@@ -28,7 +30,7 @@ export default async function CyclesPage() {
               <Field label="ปี (พ.ศ.)"><Input name="year" type="number" placeholder="2568" /></Field>
             </div>
             <label className="mb-2 flex items-center gap-2 text-sm text-neutral-700">
-              <input type="checkbox" name="active" defaultChecked className="h-4 w-4 accent-neutral-900" />
+              <input type="checkbox" name="active" defaultChecked className="h-4 w-4 accent-brand-700" />
               ตั้งเป็นรอบปัจจุบัน
             </label>
             <Button>สร้างรอบ</Button>
@@ -48,7 +50,7 @@ export default async function CyclesPage() {
                 <Td>{c.year}</Td>
                 <Td>
                   {c.active ? (
-                    <span className="rounded-full bg-neutral-900 px-2.5 py-0.5 text-xs font-medium text-white">รอบปัจจุบัน</span>
+                    <span className="rounded-full bg-brand-800 px-2.5 py-0.5 text-xs font-medium text-white">รอบปัจจุบัน</span>
                   ) : (
                     <span className="text-xs text-neutral-400">ปิด</span>
                   )}

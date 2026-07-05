@@ -61,6 +61,38 @@ export function Empty({ children }: { children: ReactNode }) {
   );
 }
 
+/* ---------------- modal ---------------- */
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title?: string;
+  children: ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        {title && <p className="mb-2 text-base font-semibold text-neutral-900">{title}</p>}
+        <div className="text-sm text-neutral-600">{children}</div>
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+          >
+            ปิด
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- table ---------------- */
 export function Table({ head, children }: { head: ReactNode; children: ReactNode }) {
   return (
@@ -104,7 +136,7 @@ export function Button({
       className={cn(
         "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors",
         variant === "primary"
-          ? "bg-neutral-900 text-white hover:bg-neutral-700"
+          ? "bg-brand-800 text-white hover:bg-brand-700"
           : "border border-neutral-300 text-neutral-700 hover:bg-neutral-100",
         className
       )}
@@ -129,7 +161,7 @@ export function LinkButton({
       className={cn(
         "inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium transition-colors",
         variant === "primary"
-          ? "bg-neutral-900 text-white hover:bg-neutral-700"
+          ? "bg-brand-800 text-white hover:bg-brand-700"
           : "border border-neutral-300 text-neutral-700 hover:bg-neutral-100"
       )}
     >
@@ -140,7 +172,7 @@ export function LinkButton({
 
 /* ---------------- form fields ---------------- */
 const inputCls =
-  "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900";
+  "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100";
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -176,6 +208,8 @@ export const TONES = {
   indigo: "border-indigo-200 bg-indigo-50 text-indigo-700",
   purple: "border-purple-200 bg-purple-50 text-purple-700",
   pink: "border-pink-200 bg-pink-50 text-pink-700",
+  brand: "border-brand-200 bg-brand-50 text-brand-700",
+  gold: "border-gold-200 bg-gold-50 text-gold-700",
 } as const;
 export type Tone = keyof typeof TONES;
 
@@ -222,7 +256,7 @@ export function BarChart({ data }: { data: { label: string; count: number }[] })
           <span className="text-xs tabular-nums text-neutral-500">{d.count}</span>
           <div className="flex w-full flex-1 items-end">
             <div
-              className="w-full rounded-t bg-neutral-900"
+              className="w-full rounded-t bg-brand-700"
               style={{ height: `${(d.count / max) * 100}%`, minHeight: d.count ? 4 : 0 }}
             />
           </div>

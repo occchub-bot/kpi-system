@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { readDB } from "./store";
+import { supabase } from "./supabase";
+import { toUser } from "./mappers";
 import type { User } from "./types";
 
 const COOKIE = "uid";
@@ -9,8 +10,9 @@ export async function getCurrentUser(): Promise<User | null> {
   const jar = await cookies();
   const uid = jar.get(COOKIE)?.value;
   if (!uid) return null;
-  const db = readDB();
-  return db.users.find((u) => u.id === uid) ?? null;
+  const { data, error } = await supabase.from("users").select("*").eq("id", uid).maybeSingle();
+  if (error || !data) return null;
+  return toUser(data);
 }
 
 export async function setSession(userId: string): Promise<void> {
@@ -29,8 +31,9 @@ export async function clearSession(): Promise<void> {
 }
 
 /** หา user จากอีเมล (login passwordless) */
-export function findUserByEmail(email: string): User | null {
-  const db = readDB();
+export async function findUserByEmail(email: string): Promise<User | null> {
   const e = email.trim().toLowerCase();
-  return db.users.find((u) => u.email.toLowerCase() === e) ?? null;
+  const { data, error } = await supabase.from("users").select("*").ilike("email", e).maybeSingle();
+  if (error || !data) return null;
+  return toUser(data);
 }

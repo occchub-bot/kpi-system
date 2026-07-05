@@ -41,7 +41,7 @@ export default function EvaluationForm({
       : 0;
 
   const inputCls =
-    "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-neutral-900";
+    "w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100";
 
   return (
     <form action={saveEvaluationAction} className="space-y-4">
@@ -104,7 +104,7 @@ export default function EvaluationForm({
         </span>
         <button
           type="submit"
-          className="rounded-lg bg-neutral-900 px-5 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+          className="rounded-lg bg-brand-800 px-5 py-2 text-sm font-medium text-white hover:bg-brand-700"
         >
           บันทึกผลประเมิน
         </button>

@@ -1,46 +1,84 @@
-import fs from "node:fs";
-import path from "node:path";
-import type { DB } from "./types";
-import { seedDB } from "./seed";
+import { supabase } from "./supabase";
+import type { Assessment, DB } from "./types";
+import {
+  toAnnouncement,
+  toAssessment,
+  toAssessmentItem,
+  toCompany,
+  toCycle,
+  toDepartment,
+  toDivision,
+  toKpi,
+  toUser,
+} from "./mappers";
 
-// เก็บข้อมูลทั้งหมดเป็นไฟล์ JSON ฝั่ง server (prototype)
-// ไฟล์ที่ deploy ไปด้วย (read-only บน serverless) ใช้เป็นค่าเริ่มต้น
-const SEED_FILE = path.join(process.cwd(), "data", "store.json");
+/**
+ * โหลดข้อมูลทั้งหมดจาก Supabase แล้วประกอบกลับเป็นรูปทรง DB เดิม
+ * (เหมือนที่เคยอ่านทั้งไฟล์ data/store.json ในเวอร์ชันก่อนหน้า)
+ * เหมาะกับสเกลข้อมูลของแอปนี้ (หลักสิบ-ร้อยแถวต่อบริษัท) — query ตรง ๆ ต่อครั้งไม่คุ้มกว่านี้
+ */
+export async function readDB(): Promise<DB> {
+  const [
+    companiesRes,
+    divisionsRes,
+    departmentsRes,
+    usersRes,
+    cyclesRes,
+    kpisRes,
+    assessmentsRes,
+    itemsRes,
+    announcementsRes,
+  ] = await Promise.all([
+    // Postgres/PostgREST ไม่รับประกันลำดับแถวถ้าไม่ใส่ order — ใส่ไว้ให้ลำดับคงที่
+    // เหมือนตอนอ่านจากไฟล์ JSON เดิม ใส่ `id` เป็น tiebreaker เสมอเพราะข้อมูล seed
+    // เดิมหลายแถวมี created_at ตรงกันเป๊ะ (constant เดียวกันตอน seed) ทำให้ order by
+    // created_at อย่างเดียวยังสุ่มลำดับได้ในแถวที่เวลาเท่ากัน
+    supabase.from("companies").select("*").order("created_at").order("id"),
+    supabase.from("divisions").select("*").order("id"),
+    supabase.from("departments").select("*").order("id"),
+    supabase.from("users").select("*").order("created_at").order("id"),
+    supabase.from("cycles").select("*").order("created_at").order("id"),
+    supabase.from("kpis").select("*").order("created_at").order("id"),
+    supabase.from("assessments").select("*").order("created_at").order("id"),
+    supabase.from("assessment_items").select("*").order("position"),
+    supabase.from("announcements").select("*").order("created_at").order("id"),
+  ]);
 
-// บน Vercel/serverless filesystem เป็น read-only ยกเว้น /tmp
-// เลยเขียนข้อมูลลง /tmp แทน (ephemeral — เหมาะกับ demo เท่านั้น)
-const WRITABLE_DIR = process.env.VERCEL ? "/tmp" : path.join(process.cwd(), "data");
-const DATA_FILE = path.join(WRITABLE_DIR, "store.json");
-
-function ensureFile(): void {
-  if (!fs.existsSync(WRITABLE_DIR)) fs.mkdirSync(WRITABLE_DIR, { recursive: true });
-  if (!fs.existsSync(DATA_FILE)) {
-    // seed จากไฟล์ที่ deploy มา ถ้ามี ไม่งั้นสร้างใหม่จาก seedDB()
-    const initial =
-      DATA_FILE !== SEED_FILE && fs.existsSync(SEED_FILE)
-        ? fs.readFileSync(SEED_FILE, "utf8")
-        : JSON.stringify(seedDB(), null, 2);
-    fs.writeFileSync(DATA_FILE, initial, "utf8");
+  for (const res of [
+    companiesRes,
+    divisionsRes,
+    departmentsRes,
+    usersRes,
+    cyclesRes,
+    kpisRes,
+    assessmentsRes,
+    itemsRes,
+    announcementsRes,
+  ]) {
+    if (res.error) throw new Error(`Supabase read failed: ${res.error.message}`);
   }
-}
 
-export function readDB(): DB {
-  ensureFile();
-  const raw = fs.readFileSync(DATA_FILE, "utf8");
-  return JSON.parse(raw) as DB;
-}
+  const itemsByAssessment = new Map<string, ReturnType<typeof toAssessmentItem>[]>();
+  for (const row of itemsRes.data ?? []) {
+    const arr = itemsByAssessment.get(row.assessment_id) ?? [];
+    arr.push(toAssessmentItem(row));
+    itemsByAssessment.set(row.assessment_id, arr);
+  }
 
-export function writeDB(db: DB): void {
-  ensureFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), "utf8");
-}
+  const assessments: Assessment[] = (assessmentsRes.data ?? []).map((r) =>
+    toAssessment(r, itemsByAssessment.get(r.id) ?? [])
+  );
 
-/** อ่าน-แก้-เขียน แบบ atomic ใน process เดียว */
-export function mutate<T>(fn: (db: DB) => T): T {
-  const db = readDB();
-  const result = fn(db);
-  writeDB(db);
-  return result;
+  return {
+    companies: (companiesRes.data ?? []).map(toCompany),
+    divisions: (divisionsRes.data ?? []).map(toDivision),
+    departments: (departmentsRes.data ?? []).map(toDepartment),
+    users: (usersRes.data ?? []).map(toUser),
+    cycles: (cyclesRes.data ?? []).map(toCycle),
+    kpis: (kpisRes.data ?? []).map(toKpi),
+    assessments,
+    announcements: (announcementsRes.data ?? []).map(toAnnouncement),
+  };
 }
 
 let counter = 0;

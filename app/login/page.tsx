@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { loginAction } from "@/lib/actions";
@@ -18,8 +19,9 @@ export default async function LoginPage({
   // รายชื่ออีเมลตัวอย่างให้ทดลองล็อกอิน (prototype) — เหลือตำแหน่งละ 1 คนพอ
   const order = ["admin", "ceo", "hr", "division_head", "dept_manager", "employee"];
   const seenRoles = new Set<string>();
-  const demo = readDB()
-    .users.slice()
+  const db = await readDB();
+  const demo = db.users
+    .slice()
     .sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role))
     .filter((u) => {
       if (seenRoles.has(u.role)) return false;
@@ -30,8 +32,8 @@ export default async function LoginPage({
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
       <div className="mb-8">
-        <div className="mb-4 h-10 w-10 rounded bg-neutral-900" />
-        <h1 className="text-2xl font-bold tracking-tight">KPI System</h1>
+        <Image src="/logo.png" alt="" width={44} height={44} className="mb-4 h-11 w-11" />
+        <h1 className="text-2xl font-bold tracking-tight text-brand-900">KPI System</h1>
         <p className="mt-1 text-sm text-neutral-500">เข้าสู่ระบบด้วยอีเมลของคุณ</p>
       </div>
 
@@ -40,7 +42,7 @@ export default async function LoginPage({
           <Input name="email" type="email" placeholder="you@example.com" required autoFocus />
         </Field>
         {sp.error && (
-          <p className="rounded-lg bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
             ไม่พบอีเมลนี้ในระบบ
           </p>
         )}
@@ -55,7 +57,7 @@ export default async function LoginPage({
               <input type="hidden" name="email" value={u.email} />
               <button
                 type="submit"
-                className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm hover:bg-neutral-50"
+                className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] px-3 py-2 text-left text-sm hover:border-brand-200 hover:bg-brand-50"
               >
                 <span className="font-medium">{u.name}</span>
                 <span className="text-xs text-neutral-400">

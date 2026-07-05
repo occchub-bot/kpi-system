@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addDepartmentAction, deleteDepartmentAction } from "@/lib/actions";
+import { addDepartmentAction, deleteDepartmentAction, updateDepartmentAction } from "@/lib/actions";
 import { PageTitle, Section, Card, Field, Input, Select, Button, Th, Td, Tr, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
-import { divisionsOf, departmentsOf, getDivision, usersInDepartment } from "@/lib/queries";
+import { readDB } from "@/lib/store";
+import { divisionsOf, departmentsOf, usersInDepartment } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,9 @@ export default async function DepartmentsPage() {
   if (!me) redirect("/login");
   if (me.role !== "hr" || !me.companyId) redirect("/");
 
-  const divisions = divisionsOf(me.companyId);
-  const departments = departmentsOf(me.companyId);
+  const db = await readDB();
+  const divisions = divisionsOf(db, me.companyId);
+  const departments = departmentsOf(db, me.companyId);
 
   return (
     <div className="max-w-3xl">
@@ -50,12 +52,22 @@ export default async function DepartmentsPage() {
           <Empty>ยังไม่มีแผนก</Empty>
         ) : (
           <PaginatedTable
-            head={<><Th>แผนก</Th><Th>ฝ่าย</Th><Th>จำนวนพนักงาน</Th><Th></Th></>}
+            head={<><Th>แผนก / ฝ่าย</Th><Th>จำนวนพนักงาน</Th><Th className="text-right">จัดการ</Th></>}
             rows={departments.map((d) => (
               <Tr key={d.id}>
-                <Td className="font-medium">{d.name}</Td>
-                <Td className="text-neutral-500">{getDivision(d.divisionId)?.name}</Td>
-                <Td>{usersInDepartment(d.id).length}</Td>
+                <Td>
+                  <form action={updateDepartmentAction} className="flex flex-wrap items-center gap-2">
+                    <input type="hidden" name="id" value={d.id} />
+                    <Input name="name" defaultValue={d.name} className="max-w-48" />
+                    <Select name="division_id" defaultValue={d.divisionId} className="max-w-48">
+                      {divisions.map((dv) => (
+                        <option key={dv.id} value={dv.id}>{dv.name}</option>
+                      ))}
+                    </Select>
+                    <Button variant="outline" className="shrink-0 px-3 py-1.5 text-xs">บันทึก</Button>
+                  </form>
+                </Td>
+                <Td>{usersInDepartment(db, d.id).length}</Td>
                 <Td className="text-right">
                   <form action={deleteDepartmentAction}>
                     <input type="hidden" name="id" value={d.id} />

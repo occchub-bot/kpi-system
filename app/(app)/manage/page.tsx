@@ -24,6 +24,7 @@ export default async function ManagePage() {
     { href: "/manage/employees", title: "พนักงาน", desc: "เพิ่มพนักงาน กำหนดผู้บังคับบัญชาผู้ประเมิน" },
     { href: "/manage/cycles", title: "รอบประเมิน", desc: "สร้างรอบประเมิน KPI ต่อปี" },
     { href: "/manage/org-kpi", title: "KPI องค์กร", desc: "กำหนด KPI หลักขององค์กร" },
+    { href: "/manage/announce", title: "ส่งข้อความถึงพนักงาน", desc: "ส่งข้อความเดียวกันถึงพนักงานทุกคนในบริษัท" },
   ];
   const evalTile: Tile = {
     href: "/evaluate",
@@ -51,7 +52,7 @@ export default async function ManagePage() {
           <Link
             key={t.href}
             href={t.href}
-            className="rounded-xl border border-[var(--border)] bg-white p-5 transition-colors hover:border-neutral-900"
+            className="rounded-xl border border-[var(--border)] bg-white p-5 transition-colors hover:border-brand-700"
           >
             <p className="font-semibold">{t.title}</p>
             <p className="mt-1 text-sm text-neutral-500">{t.desc}</p>

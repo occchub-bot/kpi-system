@@ -44,6 +44,7 @@ export interface User {
   departmentId: string | null;
   position: string; // ตำแหน่ง
   managerId: string | null; // หัวหน้างานผู้ประเมิน
+  isActive?: boolean; // false = ปิดใช้งาน (ไม่นำคะแนนมาคิดเฉลี่ย) — ค่าเริ่มต้นถือว่า active
   createdAt: string;
 }
 
@@ -105,6 +106,15 @@ export interface Assessment {
   updatedAt: string;
 }
 
+/** ข้อความประกาศจาก HR ถึงพนักงานทุกคนในบริษัท */
+export interface Announcement {
+  id: string;
+  companyId: string;
+  message: string;
+  createdById: string;
+  createdAt: string;
+}
+
 export interface DB {
   companies: Company[];
   divisions: Division[];
@@ -113,4 +123,5 @@ export interface DB {
   cycles: Cycle[];
   kpis: Kpi[];
   assessments: Assessment[];
+  announcements: Announcement[];
 }

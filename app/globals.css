@@ -2,9 +2,32 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #111111;
-  --muted: #6b7280;
-  --border: #e5e7eb;
+  --foreground: #101828;
+  --muted: #64748b;
+  --border: #e2e8f0;
+
+  /* Brand navy — sampled from the OCCC mark */
+  --brand-50: #eef2f8;
+  --brand-100: #dce5f2;
+  --brand-200: #b3c5e0;
+  --brand-300: #86a3cc;
+  --brand-400: #5a7fb3;
+  --brand-500: #385f95;
+  --brand-600: #234876;
+  --brand-700: #17305c;
+  --brand-800: #102343;
+  --brand-900: #0a172f;
+  --brand-950: #060f20;
+
+  /* Gold accent — sampled from the OCCC mark */
+  --gold-50: #fdf8ec;
+  --gold-100: #faedc8;
+  --gold-200: #f3d989;
+  --gold-300: #eabf52;
+  --gold-400: #dba62e;
+  --gold-500: #c28d1f;
+  --gold-600: #9c7119;
+  --gold-700: #7a5714;
 }
 
 @theme inline {
@@ -12,6 +35,28 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-border: var(--border);
+
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-gold-50: var(--gold-50);
+  --color-gold-100: var(--gold-100);
+  --color-gold-200: var(--gold-200);
+  --color-gold-300: var(--gold-300);
+  --color-gold-400: var(--gold-400);
+  --color-gold-500: var(--gold-500);
+  --color-gold-600: var(--gold-600);
+  --color-gold-700: var(--gold-700);
+
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Sukhumvit Set", "IBM Plex Sans Thai", "Noto Sans Thai", "Helvetica Neue",
     Arial, sans-serif;
@@ -37,6 +82,6 @@ button {
 }
 
 ::selection {
-  background: #111;
+  background: var(--brand-700);
   color: #fff;
 }

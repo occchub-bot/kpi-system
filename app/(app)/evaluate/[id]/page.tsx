@@ -3,7 +3,8 @@ import { redirect, notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import EvaluationForm from "@/components/EvaluationForm";
 import { PageTitle } from "@/components/ui";
-import { db, getUser, getKpi, getCycle } from "@/lib/queries";
+import { readDB } from "@/lib/store";
+import { getUser, getKpi, getCycle } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -16,17 +17,18 @@ export default async function EvaluateDetail({
   if (!me) redirect("/login");
   const { id } = await params;
 
-  const a = db().assessments.find((x) => x.id === id);
+  const db = await readDB();
+  const a = db.assessments.find((x) => x.id === id);
   if (!a) notFound();
 
-  const owner = getUser(a.userId);
+  const owner = getUser(db, a.userId);
   // สิทธิ์: ต้องเป็นหัวหน้าของเจ้าของรายการ
   if (!owner || owner.managerId !== me.id) redirect("/evaluate");
 
-  const cycle = getCycle(a.cycleId);
+  const cycle = getCycle(db, a.cycleId);
   const levelLabel = { org: "KPI องค์กร", division: "KPI ฝ่าย", department: "KPI แผนก" } as const;
   const items = a.items.map((it) => {
-    const linked = getKpi(it.linkedKpiId);
+    const linked = getKpi(db, it.linkedKpiId);
     return {
     id: it.id,
     title: it.title,

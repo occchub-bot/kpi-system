@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addDivisionAction, deleteDivisionAction } from "@/lib/actions";
+import { addDivisionAction, deleteDivisionAction, updateDivisionAction } from "@/lib/actions";
 import { PageTitle, Section, Card, Field, Input, Button, Th, Td, Tr, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
+import { readDB } from "@/lib/store";
 import { divisionsOf, departmentsInDivision } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ export default async function DivisionsPage() {
   if (!me) redirect("/login");
   if (me.role !== "hr" || !me.companyId) redirect("/");
 
-  const divisions = divisionsOf(me.companyId);
+  const db = await readDB();
+  const divisions = divisionsOf(db, me.companyId);
 
   return (
     <div className="max-w-3xl">
@@ -36,11 +38,17 @@ export default async function DivisionsPage() {
           <Empty>ยังไม่มีฝ่าย</Empty>
         ) : (
           <PaginatedTable
-            head={<><Th>ฝ่าย</Th><Th>จำนวนแผนก</Th><Th></Th></>}
+            head={<><Th>ฝ่าย</Th><Th>จำนวนแผนก</Th><Th className="text-right">จัดการ</Th></>}
             rows={divisions.map((d) => (
               <Tr key={d.id}>
-                <Td className="font-medium">{d.name}</Td>
-                <Td>{departmentsInDivision(d.id).length}</Td>
+                <Td>
+                  <form action={updateDivisionAction} className="flex items-center gap-2">
+                    <input type="hidden" name="id" value={d.id} />
+                    <Input name="name" defaultValue={d.name} className="max-w-56" />
+                    <Button variant="outline" className="shrink-0 px-3 py-1.5 text-xs">บันทึก</Button>
+                  </form>
+                </Td>
+                <Td>{departmentsInDivision(db, d.id).length}</Td>
                 <Td className="text-right">
                   <form action={deleteDivisionAction}>
                     <input type="hidden" name="id" value={d.id} />
