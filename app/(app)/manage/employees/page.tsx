@@ -14,7 +14,7 @@ const ROLES: { value: Role; label: string }[] = [
   { value: "employee", label: "พนักงาน" },
   { value: "dept_manager", label: "ผู้จัดการแผนก" },
   { value: "division_head", label: "ผู้บริหารฝ่าย" },
-  { value: "ceo", label: "ผู้บริหารสูงสุด (CEO)" },
+  { value: "ceo", label: "ผู้บริหารองค์กร (C level)" },
   { value: "hr", label: "ฝ่ายบุคคล (HR)" },
 ];
 

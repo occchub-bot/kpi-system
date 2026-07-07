@@ -53,7 +53,7 @@ export default async function MyKpiPage({
           <CycleSelect cycles={cycleList.map((c) => ({ id: c.id, name: c.name }))} value={cycle.id} />
         }
       >
-        KPI ของตนเอง
+        คะแนนประเมินตนเอง (100%)
       </PageTitle>
 
       <div className="mb-5 flex flex-wrap items-center gap-3 text-sm text-neutral-600">
@@ -76,6 +76,7 @@ export default async function MyKpiPage({
           linkable={linkable}
           linkLabel={linkLabel}
           locked={a?.status === "evaluated"}
+          submitted={a?.status === "submitted"}
         />
       </Section>
     </div>

@@ -536,8 +536,8 @@ export async function saveSelfAssessmentAction(formData: FormData) {
   }
   if (submit) {
     const totalWeight = items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
-    if (totalWeight !== 100) {
-      await setFlash(`น้ำหนักรวมต้องเท่ากับ 100% ก่อนส่ง (ตอนนี้ ${totalWeight}%)`, "error");
+    if (totalWeight > 100) {
+      await setFlash(`น้ำหนักรวมทุกรายการไม่ควรเกิน 100% (ตอนนี้ ${totalWeight}%)`, "error");
       return;
     }
   }

@@ -74,7 +74,7 @@ function roleLabel(role: string): string {
     {
       admin: "ผู้ดูแลระบบ",
       hr: "HR",
-      ceo: "CEO",
+      ceo: "ผู้บริหารองค์กร (C level)",
       division_head: "ผู้บริหารฝ่าย",
       dept_manager: "ผจก.แผนก",
       employee: "พนักงาน",

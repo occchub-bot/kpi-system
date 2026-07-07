@@ -41,6 +41,7 @@ export default function SelfAssessmentEditor({
   linkable,
   linkLabel,
   locked,
+  submitted,
 }: {
   cycleId: string;
   initial: Item[];
@@ -48,6 +49,7 @@ export default function SelfAssessmentEditor({
   linkable: KpiOpt[];
   linkLabel: string;
   locked: boolean;
+  submitted?: boolean;
 }) {
   const [items, setItems] = useState<Item[]>(initial);
   const [draft, setDraft] = useState<Item>(emptyDraft());
@@ -59,14 +61,6 @@ export default function SelfAssessmentEditor({
 
   const addItem = () => {
     if (!draft.title.trim()) return;
-    const current = items.reduce((s, i) => s + (Number(i.weight) || 0), 0);
-    const next = current + (Number(draft.weight) || 0);
-    if (next > 100) {
-      setOverWeightMsg(
-        `น้ำหนักรวมจะกลายเป็น ${next}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักของรายการนี้ให้ไม่เกิน ${100 - current}%`
-      );
-      return;
-    }
     setItems((prev) => [...prev, { ...draft, id: uid() }]);
     setDraft(emptyDraft());
   };
@@ -93,6 +87,12 @@ export default function SelfAssessmentEditor({
 
   return (
     <div className="space-y-6">
+      {submitted && (
+        <div className="rounded-xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-900">
+          มีการส่งข้อมูลนี้ให้ผู้บังคับบัญชาประเมินไปแล้ว — คุณยังสามารถแก้ไขและส่งใหม่ได้หากจำเป็น
+        </div>
+      )}
+
       {/* ฟอร์มเพิ่ม KPI */}
       <div className="rounded-xl border border-[var(--border)] bg-white p-5">
         <p className="mb-3 text-sm font-semibold">เพิ่ม KPI</p>
@@ -169,13 +169,13 @@ export default function SelfAssessmentEditor({
 
       {/* รายการ KPI ที่เพิ่มแล้ว */}
       <div>
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-sm font-semibold">รายการ KPI ของตนเอง ({items.length})</p>
-          <span className={totalWeight === 100 ? "text-sm text-neutral-500" : "text-sm font-medium text-neutral-900"}>
-            น้ำหนักรวม {totalWeight}% {totalWeight !== 100 && "(ควรรวมได้ 100%)"}
+        <p className="mb-2 text-sm font-semibold">รายการ KPI ของตนเอง ({items.length})</p>
+        <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} onRemove={remove} />
+        <div className="mt-2 text-right">
+          <span className={totalWeight > 100 ? "text-sm font-medium text-red-600" : "text-sm text-neutral-500"}>
+            น้ำหนักรวม {totalWeight}% {totalWeight > 100 && "(เกิน 100%)"}
           </span>
         </div>
-        <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} onRemove={remove} />
       </div>
 
       {/* Remark รวม */}
@@ -206,20 +206,23 @@ export default function SelfAssessmentEditor({
           </SubmitButton>
           <SubmitButton
             name="intent" value="submit"
-            disabled={items.length === 0 || totalWeight !== 100}
+            disabled={items.length === 0}
+            onClick={(e) => {
+              if (totalWeight > 100) {
+                e.preventDefault();
+                setOverWeightMsg(
+                  `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักรวมไม่ให้เกิน 100% ก่อนส่ง`
+                );
+              }
+            }}
             className="rounded-lg bg-brand-800 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-40"
           >
             ส่งให้ผู้บังคับบัญชาประเมิน
           </SubmitButton>
         </div>
-        {items.length > 0 && totalWeight !== 100 && (
-          <p className="mt-2 text-xs text-amber-600">
-            ต้องใส่น้ำหนักรวมให้ครบ 100% ก่อนจึงจะส่งได้ (ตอนนี้ {totalWeight}%)
-          </p>
-        )}
       </form>
 
-      <Modal open={overWeightMsg !== null} onClose={() => setOverWeightMsg(null)} title="น้ำหนักเกิน 100%">
+      <Modal open={overWeightMsg !== null} onClose={() => setOverWeightMsg(null)} title="น้ำหนักรวมทุกรายการไม่ควรเกิน 100%">
         {overWeightMsg}
       </Modal>
     </div>
@@ -262,7 +265,7 @@ function ItemList({
             )}
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-xs text-neutral-400">ตนเอง</p>
+            <p className="text-xs text-neutral-400">คะแนนตนเอง</p>
             <p className="font-semibold tabular-nums">{it.selfScore}</p>
           </div>
           {onRemove && (

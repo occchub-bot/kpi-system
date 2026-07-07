@@ -7,15 +7,11 @@ import {
   PageTitle,
   Section,
   Stat,
-  Th,
-  Td,
-  Tr,
   Score,
   Empty,
   BarChart,
   Card,
 } from "@/components/ui";
-import PaginatedTable from "@/components/PaginatedTable";
 import {
   yearsOf,
   divisionsOf,
@@ -28,8 +24,6 @@ import {
   getDepartment,
   getUser,
   userScoreInYear,
-  departmentAvgYear,
-  divisionAvgYear,
   companyAvgYear,
   kpisOf,
   bellCurve,
@@ -79,11 +73,10 @@ export default async function DashboardPage({
     return (
       <div>
         <PageTitle right={selector}>Dashboard แผนก</PageTitle>
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Stat label="แผนก" value={<span className="text-base">{dept?.name}</span>} />
           <Stat label="จำนวนพนักงาน" value={members.length} />
           <Stat label="จำนวนพนักงานที่ได้รับการประเมินแล้ว" value={evaluatedCount} />
-          <Stat label="คะแนนเฉลี่ยแผนก" value={<Score value={departmentAvgYear(db, me.departmentId, me.companyId, year)} />} />
         </div>
 
         {orgBellCurve}
@@ -100,31 +93,16 @@ export default async function DashboardPage({
     const div = getDivision(db, me.divisionId);
     const depts = departmentsInDivision(db, me.divisionId);
     const members = activeUsersInDivision(db, me.divisionId);
-    const avg = divisionAvgYear(db, me.divisionId, me.companyId, year);
     return (
       <div>
         <PageTitle right={selector}>Dashboard ฝ่าย</PageTitle>
-        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Stat label="ฝ่าย" value={<span className="text-base">{div?.name}</span>} />
           <Stat label="จำนวนแผนก" value={depts.length} />
           <Stat label="จำนวนพนักงาน" value={members.length} />
-          <Stat label="คะแนนเฉลี่ยฝ่าย" value={<Score value={avg} />} />
         </div>
 
         {orgBellCurve}
-
-        <Section title="คะแนนเฉลี่ยรายแผนก">
-          <PaginatedTable
-            head={<><Th>แผนก</Th><Th>จำนวนพนักงาน</Th><Th>AVG</Th></>}
-            rows={depts.map((d) => (
-              <Tr key={d.id}>
-                <Td className="font-medium">{d.name}</Td>
-                <Td>{activeUsersInDepartment(db, d.id).length}</Td>
-                <Td><Score value={departmentAvgYear(db, d.id, me.companyId!, year)} /></Td>
-              </Tr>
-            ))}
-          />
-        </Section>
 
         <Section title="รายบุคคล">
           <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} />
@@ -167,34 +145,6 @@ export default async function DashboardPage({
       </Section>
 
       {orgBellCurve}
-
-      <Section title="คะแนนเฉลี่ยรายฝ่าย">
-        <PaginatedTable
-          head={<><Th>ฝ่าย</Th><Th>จำนวนแผนก</Th><Th>จำนวนพนักงาน</Th><Th>AVG</Th></>}
-          rows={divisions.map((d) => (
-            <Tr key={d.id}>
-              <Td className="font-medium">{d.name}</Td>
-              <Td>{departmentsInDivision(db, d.id).length}</Td>
-              <Td>{activeUsersInDivision(db, d.id).length}</Td>
-              <Td><Score value={divisionAvgYear(db, d.id, me.companyId!, year)} /></Td>
-            </Tr>
-          ))}
-        />
-      </Section>
-
-      <Section title="คะแนนเฉลี่ยรายแผนก">
-        <PaginatedTable
-          head={<><Th>แผนก</Th><Th>ฝ่าย</Th><Th>จำนวน</Th><Th>AVG</Th></>}
-          rows={departments.map((d) => (
-            <Tr key={d.id}>
-              <Td className="font-medium">{d.name}</Td>
-              <Td className="text-neutral-500">{getDivision(db, d.divisionId)?.name}</Td>
-              <Td>{activeUsersInDepartment(db, d.id).length}</Td>
-              <Td><Score value={departmentAvgYear(db, d.id, me.companyId!, year)} /></Td>
-            </Tr>
-          ))}
-        />
-      </Section>
 
       <Section title="คะแนนรายบุคคล">
         <MembersTable db={db} userIds={allActive.map((m) => m.id)} companyId={me.companyId} year={year} showDept />

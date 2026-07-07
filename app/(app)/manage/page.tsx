@@ -15,7 +15,7 @@ export default async function ManagePage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
   if (me.role === "employee") redirect("/me");
-  // CEO ไม่มีหน้าที่จัดการ (KPI องค์กรเป็นของ HR)
+  // ผู้บริหารองค์กร (C level) ไม่มีหน้าที่จัดการ (KPI องค์กรเป็นของ HR)
   if (me.role === "ceo") redirect("/dashboard");
 
   const hrTiles: Tile[] = [

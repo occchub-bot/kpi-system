@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f7f2ea;
   --foreground: #101828;
   --muted: #64748b;
   --border: #e2e8f0;
@@ -20,7 +20,7 @@
   --brand-950: #060f20;
 
   /* Gold accent — sampled from the OCCC mark */
-  --gold-50: #fdf8ec;
+  --gold-50: #f7f2ea;
   --gold-100: #faedc8;
   --gold-200: #f3d989;
   --gold-300: #eabf52;

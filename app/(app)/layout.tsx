@@ -28,6 +28,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const announcement = me.companyId ? latestAnnouncement(db, me.companyId) : null;
 
+  // พื้นหลังตามบทบาท: ครีมจางๆ (ค่าเริ่มต้น) / เทาอ่อน (HR) / น้ำเงินจางๆ (System Admin)
+  const pageBg =
+    me.role === "hr" ? "bg-neutral-100" : me.role === "admin" ? "bg-blue-50" : "bg-gold-50";
+
   return (
     <div className="flex min-h-screen">
       <Sidebar
@@ -37,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         logout={logoutAction}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className={`flex min-w-0 flex-1 flex-col ${pageBg}`}>
         {announcement && <AnnouncementBanner id={announcement.id} message={announcement.message} />}
 
         <header className="border-b border-[var(--border)] px-8 py-6">

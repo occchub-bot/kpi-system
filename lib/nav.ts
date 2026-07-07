@@ -6,7 +6,7 @@ export function roleLabel(role: Role): string {
     {
       admin: "ผู้ดูแลระบบ",
       hr: "ฝ่ายบุคคล (HR)",
-      ceo: "ผู้บริหารสูงสุด (CEO)",
+      ceo: "ผู้บริหารองค์กร (C level)",
       division_head: "ผู้บริหารฝ่าย",
       dept_manager: "ผู้จัดการแผนก",
       employee: "พนักงาน",
@@ -74,8 +74,8 @@ export function buildNav(user: User): NavSection[] {
         },
       ];
     case "ceo":
-      // CEO เป็นระดับสูงสุด — ไม่มีหัวหน้าประเมิน จึงไม่มีส่วนบุคคล
-      // และไม่มีหน้าที่จัดการ (KPI องค์กรเป็นของ HR)
+      // ผู้บริหารองค์กร (C level) — เหมือนผู้บริหารฝ่าย (มีประเมินตนเองได้) แต่ดู Dashboard ภาพรวมทั้งองค์กร
+      // และไม่มีหน้าที่จัดการ KPI องค์กร (เป็นของ HR)
       return [
         {
           title: "ส่วนองค์กร",
@@ -84,6 +84,7 @@ export function buildNav(user: User): NavSection[] {
             { href: "/evaluate", label: "ประเมินผู้ใต้บังคับบัญชา" },
           ],
         },
+        personal,
       ];
     case "division_head":
       return [
