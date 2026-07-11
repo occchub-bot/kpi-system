@@ -5,7 +5,7 @@ import FlashToaster from "@/components/FlashToaster";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "KPI System",
+  title: "OCCCKey",
   description: "ระบบประเมิน KPI องค์กร",
 };
 

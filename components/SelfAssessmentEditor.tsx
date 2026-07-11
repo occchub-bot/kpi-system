@@ -73,7 +73,7 @@ export default function SelfAssessmentEditor({
     return (
       <div className="space-y-3">
         <div className="rounded-xl border border-[var(--border)] bg-neutral-50 px-5 py-4 text-sm text-neutral-600">
-          การประเมินรอบนี้ถูกประเมินโดยผู้บังคับบัญชาแล้ว — ไม่สามารถแก้ไขได้
+          การประเมินรอบนี้ ได้รับการประเมินโดยผู้บังคับบัญชา — ไม่สามารถแก้ไขได้
         </div>
         <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} />
         {remark && (

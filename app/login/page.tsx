@@ -33,7 +33,7 @@ export default async function LoginPage({
     <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
       <div className="mb-8">
         <Image src="/logo.png" alt="" width={44} height={44} className="mb-4 h-11 w-11" />
-        <h1 className="text-2xl font-bold tracking-tight text-brand-900">KPI System</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-brand-900">OCCCKey</h1>
         <p className="mt-1 text-sm text-neutral-500">เข้าสู่ระบบด้วยอีเมลของคุณ</p>
       </div>
 

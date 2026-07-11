@@ -32,7 +32,7 @@ export default function Sidebar({
     <aside className="flex w-64 shrink-0 flex-col border-r border-[var(--border)] bg-white">
       <div className="px-6 py-5">
         <Image src="/logo.png" alt="" width={36} height={36} className="mb-3 h-9 w-9" />
-        <p className="font-bold leading-tight text-brand-900">KPI System</p>
+        <p className="font-bold leading-tight text-brand-900">OCCCKey</p>
         <p className="text-xs text-neutral-500">{companyName}</p>
       </div>
 
