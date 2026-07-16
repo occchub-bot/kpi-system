@@ -14,6 +14,7 @@ interface Tile {
 export default async function ManagePage() {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
+  if (me.role === "admin") redirect("/admin");
   if (me.role === "employee") redirect("/me");
   // ผู้บริหารองค์กร (C level) ไม่มีหน้าที่จัดการ (KPI องค์กรเป็นของ HR)
   if (me.role === "ceo") redirect("/dashboard");

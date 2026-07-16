@@ -23,7 +23,7 @@ export default async function MyKpiPage({
 }) {
   const me = await getCurrentUser();
   if (!me) redirect("/login");
-  if (!me.companyId) redirect("/login");
+  if (!me.companyId) redirect("/admin"); // มีแค่ admin เท่านั้นที่ไม่มี companyId — หน้านี้ใช้ไม่ได้กับ admin
 
   const db = await readDB();
   const sp = await searchParams;
