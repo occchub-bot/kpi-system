@@ -45,6 +45,7 @@ create table if not exists users (
   emp_id        text not null,
   name          text not null,
   email         text not null unique,
+  password_hash text, -- scrypt "salt:hash" (hex) — null = ยังไม่ตั้งรหัสผ่าน เข้าระบบไม่ได้
   phone         text not null default '-',
   role          user_role not null,
   division_id   text references divisions(id) on delete set null,
@@ -65,6 +66,9 @@ do $$ begin
   alter table departments add constraint departments_head_user_id_fkey
     foreign key (head_user_id) references users(id) on delete set null;
 exception when duplicate_object then null; end $$;
+
+-- เผื่อรันซ้ำบน DB ที่มีตาราง users อยู่แล้วก่อนเพิ่มคอลัมน์นี้
+alter table users add column if not exists password_hash text;
 
 create table if not exists cycles (
   id         text primary key,

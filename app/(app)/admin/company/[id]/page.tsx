@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addHRAction } from "@/lib/actions";
+import { addHRAction, resetPasswordAction } from "@/lib/actions";
 import { roleLabel, roleTone } from "@/lib/nav";
 import { readDB } from "@/lib/store";
-import { PageTitle, Section, Stat, Card, Field, Input, Button, Th, Td, Tr, Score, Empty } from "@/components/ui";
+import { PageTitle, Section, Stat, Card, Field, Input, Button, SubmitButton, Th, Td, Tr, Score, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import EmployeeAdminTable, { type EmpRow } from "@/components/EmployeeAdminTable";
 import {
@@ -94,10 +94,18 @@ export default async function CompanyDetail({
           <Empty>ยังไม่มี HR</Empty>
         ) : (
           <PaginatedTable
-            head={<><Th>อีเมล HR</Th></>}
+            head={<><Th>อีเมล HR</Th><Th className="text-right">จัดการ</Th></>}
             rows={hrs.map((u) => (
               <Tr key={u.id}>
                 <Td className="font-medium">{u.email}</Td>
+                <Td className="text-right">
+                  <form action={resetPasswordAction}>
+                    <input type="hidden" name="id" value={u.id} />
+                    <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
+                      รีเซ็ตรหัสผ่าน
+                    </SubmitButton>
+                  </form>
+                </Td>
               </Tr>
             ))}
           />

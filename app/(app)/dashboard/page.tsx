@@ -105,7 +105,7 @@ export default async function DashboardPage({
         {orgBellCurve}
 
         <Section title="รายบุคคล">
-          <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} />
+          <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} showDept />
         </Section>
       </div>
     );

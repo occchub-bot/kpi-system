@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { supabase } from "./supabase";
 import { toUser } from "./mappers";
+import { verifyPassword } from "./password";
 import type { User } from "./types";
 
 const COOKIE = "uid";
@@ -30,10 +31,11 @@ export async function clearSession(): Promise<void> {
   jar.delete(COOKIE);
 }
 
-/** หา user จากอีเมล (login passwordless) */
-export async function findUserByEmail(email: string): Promise<User | null> {
+/** ตรวจอีเมล + รหัสผ่าน คืน user ถ้าถูกต้อง (login) */
+export async function verifyLogin(email: string, password: string): Promise<User | null> {
   const e = email.trim().toLowerCase();
   const { data, error } = await supabase.from("users").select("*").ilike("email", e).maybeSingle();
   if (error || !data) return null;
+  if (!verifyPassword(password, data.password_hash)) return null;
   return toUser(data);
 }

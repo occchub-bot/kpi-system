@@ -5,8 +5,9 @@ import { redirect } from "next/navigation";
 import { supabase } from "./supabase";
 import { newId, nowISO } from "./store";
 import { itemsToRows, toAssessmentItem } from "./mappers";
-import { getCurrentUser, setSession, clearSession, findUserByEmail } from "./auth";
+import { getCurrentUser, setSession, clearSession, verifyLogin } from "./auth";
 import { setFlash } from "./flash";
+import { generatePassword, hashPassword } from "./password";
 import type { AssessmentItem, Role } from "./types";
 
 async function requireUser() {
@@ -32,9 +33,10 @@ function check<T extends { error: { message: string } | null }>(res: T): T {
 /* ---------------- auth ---------------- */
 export async function loginAction(formData: FormData) {
   const email = s(formData, "email");
-  const user = await findUserByEmail(email);
+  const password = s(formData, "password");
+  const user = await verifyLogin(email, password);
   if (!user) {
-    await setFlash("ไม่พบอีเมลนี้ในระบบ", "error");
+    await setFlash("อีเมลหรือรหัสผ่านไม่ถูกต้อง", "error");
     redirect("/login?error=1");
   }
   await setSession(user.id);
@@ -60,6 +62,7 @@ export async function addCompanyAction(formData: FormData) {
   }
 
   const companyId = newId("c");
+  const password = generatePassword();
   check(await supabase.from("companies").insert({ id: companyId, name, created_at: nowISO() }));
   check(
     await supabase.from("users").insert({
@@ -68,6 +71,7 @@ export async function addCompanyAction(formData: FormData) {
       emp_id: "HR-000",
       name: "HR",
       email: hrEmail,
+      password_hash: hashPassword(password),
       phone: "-",
       role: "hr",
       division_id: null,
@@ -78,7 +82,7 @@ export async function addCompanyAction(formData: FormData) {
       created_at: nowISO(),
     })
   );
-  await setFlash(`เพิ่มบริษัท "${name}" แล้ว`);
+  await setFlash(`เพิ่มบริษัท "${name}" แล้ว — รหัสผ่าน HR (${hrEmail}): ${password}`);
   revalidatePath("/admin");
 }
 
@@ -94,6 +98,7 @@ export async function addHRAction(formData: FormData) {
   const { count } = check(
     await supabase.from("users").select("id", { count: "exact", head: true }).eq("company_id", companyId)
   );
+  const password = generatePassword();
   check(
     await supabase.from("users").insert({
       id: newId("u"),
@@ -101,6 +106,7 @@ export async function addHRAction(formData: FormData) {
       emp_id: "HR-" + String(count ?? 0),
       name: "HR",
       email,
+      password_hash: hashPassword(password),
       phone: "-",
       role: "hr",
       division_id: null,
@@ -111,7 +117,7 @@ export async function addHRAction(formData: FormData) {
       created_at: nowISO(),
     })
   );
-  await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว`);
+  await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว — รหัสผ่าน: ${password}`);
   revalidatePath(`/admin/company/${companyId}`);
 }
 
@@ -280,6 +286,7 @@ export async function addEmployeeAction(formData: FormData) {
   }
 
   const id = newId("u");
+  const password = generatePassword();
   check(
     await supabase.from("users").insert({
       id,
@@ -287,6 +294,7 @@ export async function addEmployeeAction(formData: FormData) {
       emp_id: empId || id.toUpperCase(),
       name,
       email,
+      password_hash: hashPassword(password),
       phone: phone || "-",
       role,
       division_id: divisionId,
@@ -320,7 +328,7 @@ export async function addEmployeeAction(formData: FormData) {
     }
   }
 
-  await setFlash(`เพิ่มพนักงาน "${name}" แล้ว`);
+  await setFlash(`เพิ่มพนักงาน "${name}" แล้ว — รหัสผ่าน: ${password}`);
   revalidatePath("/manage/employees");
 }
 
@@ -381,6 +389,32 @@ export async function setUserActiveAction(formData: FormData) {
   );
   await setFlash(active ? "เปิดใช้งานพนักงานแล้ว" : "ปิดใช้งานพนักงานแล้ว");
   revalidatePath("/manage/employees");
+}
+
+/** ตั้งรหัสผ่านใหม่แบบสุ่มให้ผู้ใช้ (HR ทำได้เฉพาะพนักงานบริษัทตนเอง, admin ทำได้ทุกคน) */
+export async function resetPasswordAction(formData: FormData) {
+  const me = await requireUser();
+  const id = s(formData, "id");
+  if (!id) return;
+  if (me.role !== "hr" && me.role !== "admin") redirect("/");
+
+  let q = supabase.from("users").select("id,email,company_id").eq("id", id);
+  if (me.role === "hr") {
+    if (!me.companyId) return;
+    q = q.eq("company_id", me.companyId);
+  }
+  const { data: target } = await q.maybeSingle();
+  if (!target) {
+    await setFlash("ไม่พบผู้ใช้", "error");
+    return;
+  }
+
+  const password = generatePassword();
+  check(await supabase.from("users").update({ password_hash: hashPassword(password) }).eq("id", id));
+  await setFlash(`ตั้งรหัสผ่านใหม่ให้ ${target.email} แล้ว: ${password}`);
+  revalidatePath("/manage/employees");
+  revalidatePath("/admin");
+  if (target.company_id) revalidatePath(`/admin/company/${target.company_id}`);
 }
 
 export async function addCycleAction(formData: FormData) {
