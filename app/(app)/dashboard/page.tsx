@@ -25,6 +25,7 @@ import {
   getUser,
   userScoreInYear,
   companyAvgYear,
+  departmentAvgYear,
   kpisOf,
   bellCurve,
   orgScoresForYear,
@@ -93,6 +94,10 @@ export default async function DashboardPage({
     const div = getDivision(db, me.divisionId);
     const depts = departmentsInDivision(db, me.divisionId);
     const members = activeUsersInDivision(db, me.divisionId);
+    const deptAvgData = depts.map((d) => ({
+      label: d.name,
+      count: Math.round(departmentAvgYear(db, d.id, me.companyId!, year) ?? 0),
+    }));
     return (
       <div>
         <PageTitle right={selector}>Dashboard ฝ่าย</PageTitle>
@@ -103,6 +108,14 @@ export default async function DashboardPage({
         </div>
 
         {orgBellCurve}
+
+        {depts.length > 0 && (
+          <Section title="คะแนนเฉลี่ยรายแผนกในฝ่าย">
+            <Card className="px-6 py-6">
+              <BarChart data={deptAvgData} />
+            </Card>
+          </Section>
+        )}
 
         <Section title="รายบุคคล">
           <MembersTable db={db} userIds={members.map((m) => m.id)} companyId={me.companyId} year={year} showDept />
@@ -176,6 +189,7 @@ function MembersTable({
       name: u.name,
       empId: u.empId,
       position: u.position,
+      role: u.role,
       deptName: getDepartment(db, u.departmentId)?.name ?? "—",
       finalScore: userScoreInYear(db, u.id, companyId, year),
     }));

@@ -75,8 +75,7 @@ export default async function MyKpiPage({
           initialRemark={a?.remark ?? ""}
           linkable={linkable}
           linkLabel={linkLabel}
-          locked={a?.status === "evaluated"}
-          submitted={a?.status === "submitted"}
+          status={a?.status ?? "draft"}
         />
       </Section>
     </div>

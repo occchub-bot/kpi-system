@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import { Th, Td, Tr, Badge, Empty, Modal, Field, Input, Select, Button, SubmitButton, type Tone } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
-import { updateEmployeeAction, setUserActiveAction, resetPasswordAction } from "@/lib/actions";
+import { updateEmployeeAction, setUserActiveAction } from "@/lib/actions";
+import CopyPasswordButton from "@/components/CopyPasswordButton";
 import type { Role } from "@/lib/types";
 
 export interface EmpRow {
@@ -146,12 +147,10 @@ export default function EmployeeAdminTable({
                         {u.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"}
                       </SubmitButton>
                     </form>
-                    <form action={resetPasswordAction}>
-                      <input type="hidden" name="id" value={u.id} />
-                      <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
-                        รีเซ็ตรหัสผ่าน
-                      </SubmitButton>
-                    </form>
+                    <CopyPasswordButton
+                      userId={u.id}
+                      className="text-xs text-neutral-500 underline hover:text-brand-800"
+                    />
                   </div>
                 </Td>
               )}

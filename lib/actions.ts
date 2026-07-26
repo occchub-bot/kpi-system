@@ -391,30 +391,34 @@ export async function setUserActiveAction(formData: FormData) {
   revalidatePath("/manage/employees");
 }
 
-/** ตั้งรหัสผ่านใหม่แบบสุ่มให้ผู้ใช้ (HR ทำได้เฉพาะพนักงานบริษัทตนเอง, admin ทำได้ทุกคน) */
-export async function resetPasswordAction(formData: FormData) {
+/**
+ * ตั้งรหัสผ่านใหม่แบบสุ่มให้ผู้ใช้ (HR ทำได้เฉพาะพนักงานบริษัทตนเอง, admin ทำได้ทุกคน)
+ * คืนค่ารหัสผ่านที่สุ่มได้กลับไปให้ client component คัดลอกเข้าคลิปบอร์ดทันที
+ */
+export async function resetPasswordAction(
+  formData: FormData
+): Promise<{ email: string; password: string } | { error: string }> {
   const me = await requireUser();
   const id = s(formData, "id");
-  if (!id) return;
+  if (!id) return { error: "ไม่พบผู้ใช้" };
   if (me.role !== "hr" && me.role !== "admin") redirect("/");
 
   let q = supabase.from("users").select("id,email,company_id").eq("id", id);
   if (me.role === "hr") {
-    if (!me.companyId) return;
+    if (!me.companyId) return { error: "ไม่พบผู้ใช้" };
     q = q.eq("company_id", me.companyId);
   }
   const { data: target } = await q.maybeSingle();
   if (!target) {
-    await setFlash("ไม่พบผู้ใช้", "error");
-    return;
+    return { error: "ไม่พบผู้ใช้" };
   }
 
   const password = generatePassword();
   check(await supabase.from("users").update({ password_hash: hashPassword(password) }).eq("id", id));
-  await setFlash(`ตั้งรหัสผ่านใหม่ให้ ${target.email} แล้ว: ${password}`);
   revalidatePath("/manage/employees");
   revalidatePath("/admin");
   if (target.company_id) revalidatePath(`/admin/company/${target.company_id}`);
+  return { email: target.email, password };
 }
 
 export async function addCycleAction(formData: FormData) {
@@ -570,8 +574,8 @@ export async function saveSelfAssessmentAction(formData: FormData) {
   }
   if (submit) {
     const totalWeight = items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
-    if (totalWeight > 100) {
-      await setFlash(`น้ำหนักรวมทุกรายการไม่ควรเกิน 100% (ตอนนี้ ${totalWeight}%)`, "error");
+    if (Math.abs(totalWeight - 100) > 0.01) {
+      await setFlash(`น้ำหนักรวมทุกรายการต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%)`, "error");
       return;
     }
   }
@@ -584,6 +588,11 @@ export async function saveSelfAssessmentAction(formData: FormData) {
     .eq("user_id", me.id)
     .eq("cycle_id", cycleId)
     .maybeSingle();
+
+  if (existingRow && existingRow.status !== "draft") {
+    await setFlash("ส่งข้อมูลนี้ไปแล้ว ไม่สามารถแก้ไขได้อีก", "error");
+    return;
+  }
 
   if (!existingRow) {
     const id = newId("as");

@@ -1,14 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Th, Td, Tr, Score, Empty } from "@/components/ui";
+import { Th, Td, Tr, Score, Empty, Badge } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
+import { roleLabel, roleTone } from "@/lib/nav";
+import type { Role } from "@/lib/types";
 
 export interface MemberRow {
   id: string;
   name: string;
   empId: string;
   position: string;
+  role: Role;
   deptName: string;
   finalScore: number | null;
 }
@@ -72,6 +75,7 @@ export default function MemberScoreTable({
               <Th>ชื่อ</Th>
               <Th>EmpID</Th>
               <Th>ตำแหน่ง</Th>
+              <Th>บทบาท</Th>
               {showDept && <Th>แผนก</Th>}
               <Th className="text-right">Final Score</Th>
             </>
@@ -81,6 +85,7 @@ export default function MemberScoreTable({
               <Td className="font-semibold">{u.name}</Td>
               <Td className="text-neutral-500">{u.empId}</Td>
               <Td>{u.position}</Td>
+              <Td><Badge tone={roleTone(u.role)}>{roleLabel(u.role)}</Badge></Td>
               {showDept && <Td className="text-neutral-500">{u.deptName}</Td>}
               <Td className="text-right"><Score value={u.finalScore} /></Td>
             </Tr>

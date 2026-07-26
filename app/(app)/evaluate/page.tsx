@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import CycleSelect from "@/components/CycleSelect";
-import { PageTitle, Th, Td, Tr, Score, StatusTag, Empty, LinkButton } from "@/components/ui";
+import { PageTitle, Th, Td, Tr, Score, StatusTag, Badge, Empty, LinkButton } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import { readDB } from "@/lib/store";
+import { roleLabel, roleTone } from "@/lib/nav";
 import {
   activeCycle,
   cyclesOf,
@@ -49,6 +50,7 @@ export default async function EvaluatePage({
             <>
               <Th>ชื่อ</Th>
               <Th>ตำแหน่ง</Th>
+              <Th>บทบาท</Th>
               <Th>สถานะการส่ง</Th>
               <Th className="text-right">Final Score</Th>
               <Th></Th>
@@ -61,6 +63,7 @@ export default async function EvaluatePage({
               <Tr key={u.id}>
                 <Td className="font-semibold">{u.name}</Td>
                 <Td>{u.position}</Td>
+                <Td><Badge tone={roleTone(u.role)}>{roleLabel(u.role)}</Badge></Td>
                 <Td>{a ? <StatusTag status={a.status} /> : <span className="text-neutral-400">ยังไม่ส่ง</span>}</Td>
                 <Td className="text-right"><Score value={a?.finalScore ?? null} /></Td>
                 <Td className="text-right">

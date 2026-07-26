@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { saveSelfAssessmentAction } from "@/lib/actions";
 import { Modal, SubmitButton } from "@/components/ui";
+import type { AssessmentStatus } from "@/lib/types";
 
 interface Item {
   id: string;
@@ -40,21 +41,19 @@ export default function SelfAssessmentEditor({
   initialRemark,
   linkable,
   linkLabel,
-  locked,
-  submitted,
+  status,
 }: {
   cycleId: string;
   initial: Item[];
   initialRemark: string;
   linkable: KpiOpt[];
   linkLabel: string;
-  locked: boolean;
-  submitted?: boolean;
+  status: AssessmentStatus;
 }) {
   const [items, setItems] = useState<Item[]>(initial);
   const [draft, setDraft] = useState<Item>(emptyDraft());
   const [remark, setRemark] = useState(initialRemark);
-  const [overWeightMsg, setOverWeightMsg] = useState<string | null>(null);
+  const [weightMsg, setWeightMsg] = useState<string | null>(null);
 
   const kpiTitle = (id: string | null) =>
     id ? linkable.find((k) => k.id === id)?.title ?? "—" : "—";
@@ -69,11 +68,13 @@ export default function SelfAssessmentEditor({
   const totalWeight = items.reduce((s, i) => s + (Number(i.weight) || 0), 0);
   const set = (patch: Partial<Item>) => setDraft((d) => ({ ...d, ...patch }));
 
-  if (locked) {
+  if (status !== "draft") {
     return (
       <div className="space-y-3">
         <div className="rounded-xl border border-[var(--border)] bg-neutral-50 px-5 py-4 text-sm text-neutral-600">
-          การประเมินรอบนี้ ได้รับการประเมินโดยผู้บังคับบัญชา — ไม่สามารถแก้ไขได้
+          {status === "evaluated"
+            ? "การประเมินรอบนี้ ได้รับการประเมินโดยผู้บังคับบัญชาแล้ว — ไม่สามารถแก้ไขได้"
+            : "ส่งข้อมูลนี้ให้ผู้บังคับบัญชาประเมินแล้ว — ไม่สามารถแก้ไขได้"}
         </div>
         <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} />
         {remark && (
@@ -87,12 +88,6 @@ export default function SelfAssessmentEditor({
 
   return (
     <div className="space-y-6">
-      {submitted && (
-        <div className="rounded-xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-900">
-          มีการส่งข้อมูลนี้ให้ผู้บังคับบัญชาประเมินไปแล้ว — คุณยังสามารถแก้ไขและส่งใหม่ได้หากจำเป็น
-        </div>
-      )}
-
       {/* ฟอร์มเพิ่ม KPI */}
       <div className="rounded-xl border border-[var(--border)] bg-white p-5">
         <p className="mb-3 text-sm font-semibold">เพิ่ม KPI</p>
@@ -172,8 +167,9 @@ export default function SelfAssessmentEditor({
         <p className="mb-2 text-sm font-semibold">รายการ KPI ของตนเอง ({items.length})</p>
         <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} onRemove={remove} />
         <div className="mt-2 text-right">
-          <span className={totalWeight > 100 ? "text-sm font-medium text-red-600" : "text-sm text-neutral-500"}>
-            น้ำหนักรวม {totalWeight}% {totalWeight > 100 && "(เกิน 100%)"}
+          <span className={totalWeight === 100 ? "text-sm text-neutral-500" : "text-sm font-medium text-red-600"}>
+            น้ำหนักรวม {totalWeight}%
+            {totalWeight !== 100 && (totalWeight > 100 ? " (เกิน 100%)" : " (ยังไม่ครบ 100%)")}
           </span>
         </div>
       </div>
@@ -208,10 +204,12 @@ export default function SelfAssessmentEditor({
             name="intent" value="submit"
             disabled={items.length === 0}
             onClick={(e) => {
-              if (totalWeight > 100) {
+              if (totalWeight !== 100) {
                 e.preventDefault();
-                setOverWeightMsg(
-                  `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักรวมไม่ให้เกิน 100% ก่อนส่ง`
+                setWeightMsg(
+                  totalWeight > 100
+                    ? `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักรวมให้เท่ากับ 100% พอดีก่อนส่ง`
+                    : `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งยังไม่ครบ 100% — กรุณาปรับน้ำหนักรวมให้เท่ากับ 100% พอดีก่อนส่ง`
                 );
               }
             }}
@@ -222,8 +220,8 @@ export default function SelfAssessmentEditor({
         </div>
       </form>
 
-      <Modal open={overWeightMsg !== null} onClose={() => setOverWeightMsg(null)} title="น้ำหนักรวมทุกรายการไม่ควรเกิน 100%">
-        {overWeightMsg}
+      <Modal open={weightMsg !== null} onClose={() => setWeightMsg(null)} title="น้ำหนักรวมทุกรายการต้องเท่ากับ 100%">
+        {weightMsg}
       </Modal>
     </div>
   );
