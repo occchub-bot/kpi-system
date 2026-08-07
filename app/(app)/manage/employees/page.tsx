@@ -79,7 +79,7 @@ export default async function EmployeesPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="ผู้บังคับบัญชาผู้ประเมิน">
+            <Field label="ผู้บังคับบัญชาผู้ประเมิน (จำเป็น ยกเว้นตำแหน่ง C level)">
               <Select name="manager_id" defaultValue="">
                 <option value="">— ไม่ระบุ —</option>
                 {users.map((u) => (

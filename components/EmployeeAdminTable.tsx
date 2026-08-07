@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Th, Td, Tr, Badge, Empty, Modal, Field, Input, Select, Button, SubmitButton, type Tone } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
-import { updateEmployeeAction, setUserActiveAction } from "@/lib/actions";
+import { updateEmployeeAction, setUserActiveAction, deleteEmployeeAction } from "@/lib/actions";
 import CopyPasswordButton from "@/components/CopyPasswordButton";
 import type { Role } from "@/lib/types";
 
@@ -151,6 +151,23 @@ export default function EmployeeAdminTable({
                       userId={u.id}
                       className="text-xs text-neutral-500 underline hover:text-brand-800"
                     />
+                    <form
+                      action={deleteEmployeeAction}
+                      onSubmit={(e) => {
+                        if (
+                          !confirm(
+                            `ลบพนักงาน "${u.name}" ถาวร?\nใช้ได้เฉพาะกรณีคีย์ข้อมูลผิด (ยังไม่มีประวัติการประเมิน) — ถ้ามีประวัติแล้วให้ปิดใช้งานแทน`
+                          )
+                        ) {
+                          e.preventDefault();
+                        }
+                      }}
+                    >
+                      <input type="hidden" name="id" value={u.id} />
+                      <SubmitButton className="text-xs text-red-600 underline hover:text-red-800">
+                        ลบ
+                      </SubmitButton>
+                    </form>
                   </div>
                 </Td>
               )}
@@ -202,7 +219,7 @@ export default function EmployeeAdminTable({
                   {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </Select>
               </Field>
-              <Field label="ผู้บังคับบัญชาผู้ประเมิน">
+              <Field label="ผู้บังคับบัญชาผู้ประเมิน (จำเป็น ยกเว้นตำแหน่ง C level)">
                 <Select name="manager_id" defaultValue={editing.managerId ?? ""}>
                   <option value="">— ไม่ระบุ —</option>
                   {managers.filter((m) => m.id !== editing.id).map((m) => (

@@ -14,6 +14,15 @@ interface Item {
   selfScore: number;
   selfComment: string;
 }
+/** ฟอร์มร่างเพิ่ม KPI — เก็บตัวเลขเป็น string ระหว่างพิมพ์ เพื่อให้ลบเป็นช่องว่างแล้วพิมพ์ใหม่ได้ (ไม่ถูกดันกลับเป็น 0 ทันที) */
+interface Draft {
+  title: string;
+  weight: string;
+  target: string;
+  linkedKpiId: string | null;
+  selfScore: string;
+  selfComment: string;
+}
 interface KpiOpt {
   id: string;
   title: string;
@@ -25,13 +34,12 @@ const inputCls =
 let seq = 0;
 const uid = () => `it-${Date.now().toString(36)}-${seq++}`;
 
-const emptyDraft = (): Item => ({
-  id: "",
+const emptyDraft = (): Draft => ({
   title: "",
-  weight: 0,
+  weight: "",
   target: "",
   linkedKpiId: null,
-  selfScore: 0,
+  selfScore: "",
   selfComment: "",
 });
 
@@ -51,22 +59,52 @@ export default function SelfAssessmentEditor({
   status: AssessmentStatus;
 }) {
   const [items, setItems] = useState<Item[]>(initial);
-  const [draft, setDraft] = useState<Item>(emptyDraft());
+  const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [remark, setRemark] = useState(initialRemark);
   const [weightMsg, setWeightMsg] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const kpiTitle = (id: string | null) =>
     id ? linkable.find((k) => k.id === id)?.title ?? "—" : "—";
 
   const addItem = () => {
-    if (!draft.title.trim()) return;
-    setItems((prev) => [...prev, { ...draft, id: uid() }]);
+    const title = draft.title.trim();
+    const target = draft.target.trim();
+    const weight = draft.weight.trim() === "" ? NaN : Number(draft.weight);
+    const selfScore = draft.selfScore.trim() === "" ? NaN : Number(draft.selfScore);
+
+    if (!title) return;
+    if (!target) {
+      setAddError("กรุณากรอกตัวชี้วัด");
+      return;
+    }
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 100) {
+      setAddError("น้ำหนักต้องมากกว่า 0 และไม่เกิน 100");
+      return;
+    }
+    if (!Number.isFinite(selfScore) || selfScore < 0 || selfScore > 100) {
+      setAddError("คะแนนประเมินตนเองต้องอยู่ระหว่าง 0–100");
+      return;
+    }
+    setAddError(null);
+    setItems((prev) => [
+      ...prev,
+      {
+        id: uid(),
+        title,
+        weight,
+        target,
+        linkedKpiId: draft.linkedKpiId,
+        selfScore,
+        selfComment: draft.selfComment.trim(),
+      },
+    ]);
     setDraft(emptyDraft());
   };
   const remove = (id: string) => setItems((prev) => prev.filter((it) => it.id !== id));
 
   const totalWeight = items.reduce((s, i) => s + (Number(i.weight) || 0), 0);
-  const set = (patch: Partial<Item>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
 
   if (status !== "draft") {
     return (
@@ -128,7 +166,8 @@ export default function SelfAssessmentEditor({
             <input
               type="number" min={0} max={100} className={inputCls}
               value={draft.weight}
-              onChange={(e) => set({ weight: Number(e.target.value) })}
+              onChange={(e) => set({ weight: e.target.value })}
+              placeholder="0"
             />
           </label>
           <label className="block">
@@ -136,7 +175,8 @@ export default function SelfAssessmentEditor({
             <input
               type="number" min={0} max={100} className={inputCls}
               value={draft.selfScore}
-              onChange={(e) => set({ selfScore: Number(e.target.value) })}
+              onChange={(e) => set({ selfScore: e.target.value })}
+              placeholder="0"
             />
           </label>
           <label className="block sm:col-span-2">
@@ -150,7 +190,8 @@ export default function SelfAssessmentEditor({
             />
           </label>
         </div>
-        <div className="mt-3 flex justify-end">
+        <div className="mt-3 flex items-center justify-end gap-3">
+          {addError && <span className="text-sm text-red-600">{addError}</span>}
           <button
             type="button"
             onClick={addItem}

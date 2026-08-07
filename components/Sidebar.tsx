@@ -65,11 +65,16 @@ export default function Sidebar({
       <div className="border-t border-[var(--border)] px-6 py-4">
         <p className="text-sm font-semibold">{footer.name}</p>
         <p className="text-xs text-neutral-500">{footer.sub}</p>
-        <form action={logout} className="mt-3">
-          <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
-            ออกจากระบบ
-          </SubmitButton>
-        </form>
+        <div className="mt-3 flex items-center gap-3">
+          <Link href="/account" className="text-xs text-neutral-500 underline hover:text-brand-800">
+            เปลี่ยนรหัสผ่าน
+          </Link>
+          <form action={logout}>
+            <SubmitButton className="text-xs text-neutral-500 underline hover:text-brand-800">
+              ออกจากระบบ
+            </SubmitButton>
+          </form>
+        </div>
       </div>
     </aside>
   );

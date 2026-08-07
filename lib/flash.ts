@@ -18,3 +18,22 @@ export async function readFlashRaw(): Promise<string | null> {
   const jar = await cookies();
   return jar.get("flash")?.value ?? null;
 }
+
+/**
+ * ตั้งรหัสผ่านที่สุ่มไว้ให้โชว์เป็น modal ค้างไว้จนกว่าจะปิดเอง (ไม่ auto-dismiss แบบ toast)
+ * ใช้แทนการแปะรหัสผ่านไว้ในข้อความ flash เฉยๆ ซึ่งพลาดดูง่ายและก็อปยาก
+ */
+export async function setPasswordReveal(label: string, password: string) {
+  const jar = await cookies();
+  jar.set("pwreveal", `${encodeURIComponent(label)}|${encodeURIComponent(password)}`, {
+    path: "/",
+    maxAge: 60,
+    httpOnly: false,
+    sameSite: "lax",
+  });
+}
+
+export async function readPasswordRevealRaw(): Promise<string | null> {
+  const jar = await cookies();
+  return jar.get("pwreveal")?.value ?? null;
+}

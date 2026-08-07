@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addUnitKpiAction } from "@/lib/actions";
+import { addUnitKpiAction, deleteKpiAction } from "@/lib/actions";
 import { readDB } from "@/lib/store";
-import { PageTitle, Section, Card, Field, Input, Select, Button, Th, Td, Tr, Empty } from "@/components/ui";
+import { PageTitle, Section, Card, Field, Input, Select, Button, SubmitButton, Th, Td, Tr, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import {
   kpisOf,
@@ -72,11 +72,19 @@ export default async function UnitKpiPage() {
           <Empty>ยังไม่มี {title}</Empty>
         ) : (
           <PaginatedTable
-            head={<><Th>หัวข้อ KPI</Th><Th>{parentLabel}</Th></>}
+            head={<><Th>หัวข้อ KPI</Th><Th>{parentLabel}</Th><Th className="text-right">จัดการ</Th></>}
             rows={list.map((k) => (
               <Tr key={k.id}>
                 <Td className="font-medium">{k.title}</Td>
                 <Td className="text-neutral-500">{getKpi(db, k.parentKpiId)?.title ?? "—"}</Td>
+                <Td className="text-right">
+                  <form action={deleteKpiAction}>
+                    <input type="hidden" name="id" value={k.id} />
+                    <SubmitButton className="text-xs text-red-600 underline hover:text-red-800">
+                      ลบ
+                    </SubmitButton>
+                  </form>
+                </Td>
               </Tr>
             ))}
           />

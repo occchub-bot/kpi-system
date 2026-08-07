@@ -93,6 +93,7 @@ export function buildNav(user: User): NavSection[] {
           items: [
             { href: "/dashboard", label: "Dashboard ฝ่าย" },
             { href: "/manage", label: "การจัดการ" },
+            { href: "/evaluate", label: "ประเมินผู้ใต้บังคับบัญชา" },
           ],
         },
         personal,
@@ -104,6 +105,7 @@ export function buildNav(user: User): NavSection[] {
           items: [
             { href: "/dashboard", label: "Dashboard แผนก" },
             { href: "/manage", label: "การจัดการ" },
+            { href: "/evaluate", label: "ประเมินผู้ใต้บังคับบัญชา" },
           ],
         },
         personal,

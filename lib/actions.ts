@@ -6,8 +6,8 @@ import { supabase } from "./supabase";
 import { newId, nowISO } from "./store";
 import { itemsToRows, toAssessmentItem } from "./mappers";
 import { getCurrentUser, setSession, clearSession, verifyLogin } from "./auth";
-import { setFlash } from "./flash";
-import { generatePassword, hashPassword } from "./password";
+import { setFlash, setPasswordReveal } from "./flash";
+import { generatePassword, hashPassword, verifyPassword } from "./password";
 import type { AssessmentItem, Role } from "./types";
 
 async function requireUser() {
@@ -50,6 +50,36 @@ export async function logoutAction() {
   redirect("/login");
 }
 
+/** ผู้ใช้ที่ล็อกอินอยู่เปลี่ยนรหัสผ่านของตัวเอง (ต้องยืนยันรหัสผ่านเดิมก่อน) */
+export async function changeOwnPasswordAction(formData: FormData) {
+  const me = await requireUser();
+  const current = s(formData, "current_password");
+  const next = s(formData, "new_password");
+  const confirm = s(formData, "confirm_password");
+  if (!current || !next || !confirm) {
+    await setFlash("กรอกข้อมูลให้ครบ", "error");
+    return;
+  }
+  if (next !== confirm) {
+    await setFlash("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน", "error");
+    return;
+  }
+  if (next.length < 8) {
+    await setFlash("รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร", "error");
+    return;
+  }
+
+  const { data } = await supabase.from("users").select("password_hash").eq("id", me.id).maybeSingle();
+  if (!verifyPassword(current, data?.password_hash ?? null)) {
+    await setFlash("รหัสผ่านปัจจุบันไม่ถูกต้อง", "error");
+    return;
+  }
+
+  check(await supabase.from("users").update({ password_hash: hashPassword(next) }).eq("id", me.id));
+  await setFlash("เปลี่ยนรหัสผ่านสำเร็จ");
+  revalidatePath("/account");
+}
+
 /* ---------------- admin: companies + HR ---------------- */
 export async function addCompanyAction(formData: FormData) {
   const me = await requireUser();
@@ -82,7 +112,8 @@ export async function addCompanyAction(formData: FormData) {
       created_at: nowISO(),
     })
   );
-  await setFlash(`เพิ่มบริษัท "${name}" แล้ว — รหัสผ่าน HR (${hrEmail}): ${password}`);
+  await setFlash(`เพิ่มบริษัท "${name}" แล้ว`);
+  await setPasswordReveal(`บริษัท "${name}" — HR (${hrEmail})`, password);
   revalidatePath("/admin");
 }
 
@@ -117,7 +148,33 @@ export async function addHRAction(formData: FormData) {
       created_at: nowISO(),
     })
   );
-  await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว — รหัสผ่าน: ${password}`);
+  await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว`);
+  await setPasswordReveal(`HR (${email})`, password);
+  revalidatePath(`/admin/company/${companyId}`);
+}
+
+/** admin ลบอีเมล HR ที่ไม่ต้องการออกจากบริษัท (ต้องเหลือ HR อย่างน้อย 1 คนเสมอ) */
+export async function deleteHRAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "admin") redirect("/");
+  const id = s(formData, "id");
+  const companyId = s(formData, "company_id");
+  if (!id || !companyId) return;
+
+  const { count } = check(
+    await supabase
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("role", "hr")
+  );
+  if ((count ?? 0) <= 1) {
+    await setFlash("ลบไม่ได้ ต้องมี HR อย่างน้อย 1 คนต่อบริษัท", "error");
+    return;
+  }
+
+  check(await supabase.from("users").delete().eq("id", id).eq("company_id", companyId).eq("role", "hr"));
+  await setFlash("ลบอีเมล HR แล้ว");
   revalidatePath(`/admin/company/${companyId}`);
 }
 
@@ -284,6 +341,13 @@ export async function addEmployeeAction(formData: FormData) {
     await setFlash("กรอกชื่อและอีเมลพนักงานให้ครบ", "error");
     return;
   }
+  if (!managerId && role !== "ceo") {
+    await setFlash(
+      "กรุณาเลือกผู้บังคับบัญชาผู้ประเมิน (ไม่งั้นจะไม่มีใครเห็นการประเมินตนเองของพนักงานคนนี้เลย)",
+      "error"
+    );
+    return;
+  }
 
   const id = newId("u");
   const password = generatePassword();
@@ -328,7 +392,8 @@ export async function addEmployeeAction(formData: FormData) {
     }
   }
 
-  await setFlash(`เพิ่มพนักงาน "${name}" แล้ว — รหัสผ่าน: ${password}`);
+  await setFlash(`เพิ่มพนักงาน "${name}" แล้ว`);
+  await setPasswordReveal(`${name} (${email})`, password);
   revalidatePath("/manage/employees");
 }
 
@@ -348,6 +413,13 @@ export async function updateEmployeeAction(formData: FormData) {
   const managerId = s(formData, "manager_id") || null;
   if (!id || !name || !email) {
     await setFlash("กรอกชื่อและอีเมลพนักงานให้ครบ", "error");
+    return;
+  }
+  if (!managerId && role !== "ceo") {
+    await setFlash(
+      "กรุณาเลือกผู้บังคับบัญชาผู้ประเมิน (ไม่งั้นจะไม่มีใครเห็นการประเมินตนเองของพนักงานคนนี้เลย)",
+      "error"
+    );
     return;
   }
 
@@ -372,7 +444,49 @@ export async function updateEmployeeAction(formData: FormData) {
   revalidatePath("/manage/employees");
 }
 
-/** HR เปิด/ปิดใช้งานพนักงาน — พนักงานที่ปิดใช้งานจะไม่ถูกนำคะแนนมาคิดเฉลี่ย (ลบไม่ได้ ทำได้แค่ปิดใช้งาน) */
+/**
+ * HR ลบพนักงานออกจากระบบถาวร — เฉพาะกรณีคีย์ข้อมูลผิด (ยังไม่มีประวัติการประเมิน และไม่มีลูกน้องรายงานตรง)
+ * พนักงานที่มีประวัติแล้วให้ปิดใช้งานแทน (setUserActiveAction) เพื่อรักษาประวัติคะแนนไว้
+ */
+export async function deleteEmployeeAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const id = s(formData, "id");
+  if (!id) return;
+
+  const { data: emp } = await supabase
+    .from("users")
+    .select("id, name")
+    .eq("id", id)
+    .eq("company_id", me.companyId)
+    .maybeSingle();
+  if (!emp) {
+    await setFlash("ไม่พบพนักงาน", "error");
+    return;
+  }
+
+  const { count: assessmentCount } = check(
+    await supabase.from("assessments").select("id", { count: "exact", head: true }).eq("user_id", id)
+  );
+  if (assessmentCount) {
+    await setFlash("ลบไม่ได้ พนักงานคนนี้มีประวัติการประเมินแล้ว — ใช้ปิดใช้งานแทน", "error");
+    return;
+  }
+
+  const { count: reportsCount } = check(
+    await supabase.from("users").select("id", { count: "exact", head: true }).eq("manager_id", id)
+  );
+  if (reportsCount) {
+    await setFlash("ลบไม่ได้ ยังมีพนักงานที่รายงานตรงต่อคนนี้อยู่ — เปลี่ยนผู้บังคับบัญชาของพวกเขาก่อน", "error");
+    return;
+  }
+
+  check(await supabase.from("users").delete().eq("id", id).eq("company_id", me.companyId));
+  await setFlash(`ลบพนักงาน "${emp.name}" แล้ว`);
+  revalidatePath("/manage/employees");
+}
+
+/** HR เปิด/ปิดใช้งานพนักงาน — พนักงานที่ปิดใช้งานจะไม่ถูกนำคะแนนมาคิดเฉลี่ย */
 export async function setUserActiveAction(formData: FormData) {
   const me = await requireUser();
   if (me.role !== "hr" || !me.companyId) return;
@@ -520,6 +634,39 @@ export async function addUnitKpiAction(formData: FormData) {
   revalidatePath("/manage/unit-kpi");
 }
 
+/** ลบ KPI (องค์กร/ฝ่าย/แผนก) — ต้องเป็นเจ้าของขอบเขตนั้นๆ เท่านั้น (HR ลบ KPI องค์กร, division_head ลบ KPI ฝ่ายตัวเอง, dept_manager ลบ KPI แผนกตัวเอง) */
+export async function deleteKpiAction(formData: FormData) {
+  const me = await requireUser();
+  if (!me.companyId) return;
+  const id = s(formData, "id");
+  if (!id) return;
+
+  const { data: kpi } = await supabase
+    .from("kpis")
+    .select("id, level, division_id, department_id")
+    .eq("id", id)
+    .eq("company_id", me.companyId)
+    .maybeSingle();
+  if (!kpi) {
+    await setFlash("ไม่พบ KPI", "error");
+    return;
+  }
+
+  const allowed =
+    (kpi.level === "org" && me.role === "hr") ||
+    (kpi.level === "division" && me.role === "division_head" && kpi.division_id === me.divisionId) ||
+    (kpi.level === "department" && me.role === "dept_manager" && kpi.department_id === me.departmentId);
+  if (!allowed) {
+    await setFlash("ไม่มีสิทธิ์ลบ KPI นี้", "error");
+    return;
+  }
+
+  check(await supabase.from("kpis").delete().eq("id", id));
+  await setFlash("ลบ KPI แล้ว");
+  revalidatePath("/manage/org-kpi");
+  revalidatePath("/manage/unit-kpi");
+}
+
 /* ---------------- self assessment ---------------- */
 function weighted(items: { weight: number; score: number | null }[]): number | null {
   const valid = items.filter((i) => i.score !== null);
@@ -568,6 +715,20 @@ export async function saveSelfAssessmentAction(formData: FormData) {
   const items = parseItems(s(formData, "items"));
   const remark = s(formData, "remark").trim();
   if (!cycleId) return;
+  for (const it of items) {
+    if (!it.title.trim() || !it.target.trim()) {
+      await setFlash("ทุกรายการต้องกรอกหัวข้อ KPI และตัวชี้วัด", "error");
+      return;
+    }
+    if (!(it.weight > 0 && it.weight <= 100)) {
+      await setFlash("น้ำหนักแต่ละรายการต้องมากกว่า 0 และไม่เกิน 100", "error");
+      return;
+    }
+    if (!(it.selfScore >= 0 && it.selfScore <= 100)) {
+      await setFlash("คะแนนประเมินตนเองแต่ละรายการต้องอยู่ระหว่าง 0–100", "error");
+      return;
+    }
+  }
   if (submit && items.length === 0) {
     await setFlash("เพิ่ม KPI อย่างน้อย 1 ข้อก่อนส่ง", "error");
     return;

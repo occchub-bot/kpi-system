@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { readDB } from "@/lib/store";
 import YearSelect from "@/components/YearSelect";
 import MemberScoreTable, { type MemberRow } from "@/components/MemberScoreTable";
+import PaginatedTable from "@/components/PaginatedTable";
 import {
   PageTitle,
   Section,
@@ -11,6 +12,9 @@ import {
   Empty,
   BarChart,
   Card,
+  Th,
+  Td,
+  Tr,
 } from "@/components/ui";
 import {
   yearsOf,
@@ -25,6 +29,7 @@ import {
   getUser,
   userScoreInYear,
   companyAvgYear,
+  divisionAvgYear,
   departmentAvgYear,
   kpisOf,
   bellCurve,
@@ -67,7 +72,8 @@ export default async function DashboardPage({
   /* ---------- ผจก.แผนก: พนักงานในแผนก ---------- */
   if (me.role === "dept_manager" && me.departmentId) {
     const dept = getDepartment(db, me.departmentId);
-    const members = activeUsersInDepartment(db, me.departmentId);
+    // ไม่นับบัญชี HR เป็น "พนักงาน" (เป็นบัญชีกลาง ไม่ได้ถูกประเมิน)
+    const members = activeUsersInDepartment(db, me.departmentId).filter((u) => u.role !== "hr");
     const evaluatedCount = members.filter(
       (m) => userScoreInYear(db, m.id, me.companyId!, year) !== null
     ).length;
@@ -93,7 +99,8 @@ export default async function DashboardPage({
   if (me.role === "division_head" && me.divisionId) {
     const div = getDivision(db, me.divisionId);
     const depts = departmentsInDivision(db, me.divisionId);
-    const members = activeUsersInDivision(db, me.divisionId);
+    // ไม่นับบัญชี HR เป็น "พนักงาน" (เป็นบัญชีกลาง ไม่ได้ถูกประเมิน)
+    const members = activeUsersInDivision(db, me.divisionId).filter((u) => u.role !== "hr");
     const deptAvgData = depts.map((d) => ({
       label: d.name,
       count: Math.round(departmentAvgYear(db, d.id, me.companyId!, year) ?? 0),
@@ -108,6 +115,31 @@ export default async function DashboardPage({
         </div>
 
         {orgBellCurve}
+
+        <Section title="แผนกที่รับผิดชอบ">
+          {depts.length === 0 ? (
+            <Empty>ยังไม่มีแผนกในฝ่ายนี้</Empty>
+          ) : (
+            <PaginatedTable
+              head={
+                <>
+                  <Th>แผนก</Th>
+                  <Th>จำนวนพนักงาน</Th>
+                  <Th className="text-right">คะแนนเฉลี่ย</Th>
+                </>
+              }
+              rows={depts.map((d) => (
+                <Tr key={d.id}>
+                  <Td className="font-medium">{d.name}</Td>
+                  <Td>{activeUsersInDepartment(db, d.id).filter((u) => u.role !== "hr").length}</Td>
+                  <Td className="text-right">
+                    <Score value={departmentAvgYear(db, d.id, me.companyId!, year)} />
+                  </Td>
+                </Tr>
+              ))}
+            />
+          )}
+        </Section>
 
         {depts.length > 0 && (
           <Section title="คะแนนเฉลี่ยรายแผนกในฝ่าย">
@@ -127,8 +159,8 @@ export default async function DashboardPage({
   /* ---------- HR / CEO: ภาพรวมองค์กร ---------- */
   const divisions = divisionsOf(db, me.companyId);
   const departments = departmentsOf(db, me.companyId);
+  // ไม่นับบัญชี HR เป็น "พนักงาน" (เป็นบัญชีกลาง ไม่ได้ถูกประเมิน) — ยกเว้นตัวเองถ้าผู้ดู dashboard คือ HR
   const allActive = activeUsersOf(db, me.companyId).filter((u) => u.role !== "hr" || u.id === me.id);
-  const everyone = activeUsersOf(db, me.companyId);
   const avg = companyAvgYear(db, me.companyId, year);
   const orgKpis = kpisOf(db, me.companyId, "org");
 
@@ -137,7 +169,7 @@ export default async function DashboardPage({
       <PageTitle right={selector}>Dashboard องค์กร</PageTitle>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="จำนวนพนักงาน" value={everyone.length} />
+        <Stat label="จำนวนพนักงาน" value={allActive.length} />
         <Stat label="จำนวนฝ่าย" value={divisions.length} />
         <Stat label="จำนวนแผนก" value={departments.length} />
         <Stat label="คะแนนเฉลี่ยองค์กร" value={<Score value={avg} />} />
@@ -158,6 +190,60 @@ export default async function DashboardPage({
       </Section>
 
       {orgBellCurve}
+
+      <Section title="รายชื่อฝ่าย">
+        {divisions.length === 0 ? (
+          <Empty>ยังไม่มีฝ่าย</Empty>
+        ) : (
+          <PaginatedTable
+            head={
+              <>
+                <Th>ฝ่าย</Th>
+                <Th>จำนวนแผนก</Th>
+                <Th>จำนวนพนักงาน</Th>
+                <Th className="text-right">คะแนนเฉลี่ย</Th>
+              </>
+            }
+            rows={divisions.map((d) => (
+              <Tr key={d.id}>
+                <Td className="font-medium">{d.name}</Td>
+                <Td>{departmentsInDivision(db, d.id).length}</Td>
+                <Td>{activeUsersInDivision(db, d.id).length}</Td>
+                <Td className="text-right">
+                  <Score value={divisionAvgYear(db, d.id, me.companyId!, year)} />
+                </Td>
+              </Tr>
+            ))}
+          />
+        )}
+      </Section>
+
+      <Section title="รายชื่อแผนก">
+        {departments.length === 0 ? (
+          <Empty>ยังไม่มีแผนก</Empty>
+        ) : (
+          <PaginatedTable
+            head={
+              <>
+                <Th>แผนก</Th>
+                <Th>ฝ่าย</Th>
+                <Th>จำนวนพนักงาน</Th>
+                <Th className="text-right">คะแนนเฉลี่ย</Th>
+              </>
+            }
+            rows={departments.map((d) => (
+              <Tr key={d.id}>
+                <Td className="font-medium">{d.name}</Td>
+                <Td className="text-neutral-500">{getDivision(db, d.divisionId)?.name ?? "—"}</Td>
+                <Td>{activeUsersInDepartment(db, d.id).length}</Td>
+                <Td className="text-right">
+                  <Score value={departmentAvgYear(db, d.id, me.companyId!, year)} />
+                </Td>
+              </Tr>
+            ))}
+          />
+        )}
+      </Section>
 
       <Section title="คะแนนรายบุคคล">
         <MembersTable db={db} userIds={allActive.map((m) => m.id)} companyId={me.companyId} year={year} showDept />

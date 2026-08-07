@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addHRAction } from "@/lib/actions";
+import { addHRAction, deleteHRAction } from "@/lib/actions";
 import { roleLabel, roleTone } from "@/lib/nav";
 import { readDB } from "@/lib/store";
-import { PageTitle, Section, Stat, Card, Field, Input, Button, Th, Td, Tr, Score, Empty } from "@/components/ui";
+import { PageTitle, Section, Stat, Card, Field, Input, Button, SubmitButton, Th, Td, Tr, Score, Empty } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
 import EmployeeAdminTable, { type EmpRow } from "@/components/EmployeeAdminTable";
 import CopyPasswordButton from "@/components/CopyPasswordButton";
@@ -100,10 +100,19 @@ export default async function CompanyDetail({
               <Tr key={u.id}>
                 <Td className="font-medium">{u.email}</Td>
                 <Td className="text-right">
-                  <CopyPasswordButton
-                    userId={u.id}
-                    className="text-xs text-neutral-500 underline hover:text-brand-800"
-                  />
+                  <div className="flex justify-end gap-3">
+                    <CopyPasswordButton
+                      userId={u.id}
+                      className="text-xs text-neutral-500 underline hover:text-brand-800"
+                    />
+                    <form action={deleteHRAction}>
+                      <input type="hidden" name="id" value={u.id} />
+                      <input type="hidden" name="company_id" value={id} />
+                      <SubmitButton className="text-xs text-red-600 underline hover:text-red-800">
+                        ลบ
+                      </SubmitButton>
+                    </form>
+                  </div>
                 </Td>
               </Tr>
             ))}

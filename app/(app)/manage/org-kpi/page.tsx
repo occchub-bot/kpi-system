@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { addOrgKpiAction } from "@/lib/actions";
-import { PageTitle, Section, Card, Field, Input, Button, Empty } from "@/components/ui";
+import { addOrgKpiAction, deleteKpiAction } from "@/lib/actions";
+import { PageTitle, Section, Card, Field, Input, Button, SubmitButton, Empty } from "@/components/ui";
 import { readDB } from "@/lib/store";
 import { kpisOf } from "@/lib/queries";
 
@@ -43,7 +43,13 @@ export default async function OrgKpiPage() {
             {kpis.map((k, i) => (
               <div key={k.id} className="flex items-center gap-3 px-5 py-3.5 text-sm">
                 <span className="text-neutral-400 tabular-nums">{i + 1}.</span>
-                <span className="font-medium">{k.title}</span>
+                <span className="flex-1 font-medium">{k.title}</span>
+                <form action={deleteKpiAction}>
+                  <input type="hidden" name="id" value={k.id} />
+                  <SubmitButton className="text-xs text-red-600 underline hover:text-red-800">
+                    ลบ
+                  </SubmitButton>
+                </form>
               </div>
             ))}
           </Card>
