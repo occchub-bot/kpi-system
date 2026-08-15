@@ -5,7 +5,7 @@ import { roleLabel, roleTone } from "@/lib/nav";
 import { PageTitle, Section, Card, Field, Input, Select, Button } from "@/components/ui";
 import EmployeeAdminTable, { type EmpRow } from "@/components/EmployeeAdminTable";
 import { readDB } from "@/lib/store";
-import { divisionsOf, departmentsOf, usersOf, getDivision, getDepartment, userName } from "@/lib/queries";
+import { divisionsOf, departmentsOf, usersOf, getDivision, getDepartment, userName, activeCycle, assessmentOf } from "@/lib/queries";
 import type { Role } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -27,24 +27,30 @@ export default async function EmployeesPage() {
   const divisions = divisionsOf(db, me.companyId);
   const departments = departmentsOf(db, me.companyId);
   const users = usersOf(db, me.companyId);
+  const cycle = activeCycle(db, me.companyId);
 
-  const rows: EmpRow[] = users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    position: u.position,
-    empId: u.empId,
-    email: u.email,
-    phone: u.phone,
-    role: u.role,
-    roleLabel: roleLabel(u.role),
-    roleTone: roleTone(u.role),
-    divisionId: u.divisionId,
-    departmentId: u.departmentId,
-    managerId: u.managerId,
-    deptName: getDepartment(db, u.departmentId)?.name ?? getDivision(db, u.divisionId)?.name ?? "—",
-    managerName: userName(db, u.managerId),
-    isActive: u.isActive !== false,
-  }));
+  const rows: EmpRow[] = users.map((u) => {
+    const a = cycle ? assessmentOf(db, u.id, cycle.id) : null;
+    return {
+      id: u.id,
+      name: u.name,
+      position: u.position,
+      empId: u.empId,
+      email: u.email,
+      phone: u.phone,
+      role: u.role,
+      roleLabel: roleLabel(u.role),
+      roleTone: roleTone(u.role),
+      divisionId: u.divisionId,
+      departmentId: u.departmentId,
+      managerId: u.managerId,
+      deptName: getDepartment(db, u.departmentId)?.name ?? getDivision(db, u.divisionId)?.name ?? "—",
+      managerName: userName(db, u.managerId),
+      isActive: u.isActive !== false,
+      assessmentId: a?.id ?? null,
+      assessmentStatus: a?.status ?? null,
+    };
+  });
 
   return (
     <div>

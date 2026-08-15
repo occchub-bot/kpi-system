@@ -45,7 +45,7 @@ export default async function UnitKpiPage() {
     <div className="max-w-3xl">
       <PageTitle>{title}</PageTitle>
       <p className="mb-5 -mt-3 text-sm text-neutral-500">
-        {unitName} — ใส่เฉพาะหัวข้อ และเลือกเชื่อมกับ KPI ระดับบน (ไม่มีน้ำหนัก/เวลา)
+        {unitName} — ใส่เฉพาะหัวข้อ และเลือกเชื่อมกับ KPI ระดับบน (ไม่มีน้ำหนักงาน(weight)/เวลา)
       </p>
 
       <Section title={`เพิ่ม ${title}`}>

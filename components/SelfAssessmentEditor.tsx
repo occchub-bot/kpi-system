@@ -79,7 +79,7 @@ export default function SelfAssessmentEditor({
       return;
     }
     if (!Number.isFinite(weight) || weight <= 0 || weight > 100) {
-      setAddError("น้ำหนักต้องมากกว่า 0 และไม่เกิน 100");
+      setAddError("น้ำหนักงาน(weight)ต้องมากกว่า 0 และไม่เกิน 100");
       return;
     }
     if (!Number.isFinite(selfScore) || selfScore < 0 || selfScore > 100) {
@@ -162,7 +162,7 @@ export default function SelfAssessmentEditor({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-neutral-600">3. น้ำหนัก (Weight %)</span>
+            <span className="mb-1 block text-xs font-medium text-neutral-600">3. น้ำหนักงาน(weight) (%)</span>
             <input
               type="number" min={0} max={100} className={inputCls}
               value={draft.weight}
@@ -209,7 +209,7 @@ export default function SelfAssessmentEditor({
         <ItemList items={items} kpiTitle={kpiTitle} linkLabel={linkLabel} onRemove={remove} />
         <div className="mt-2 text-right">
           <span className={totalWeight === 100 ? "text-sm text-neutral-500" : "text-sm font-medium text-red-600"}>
-            น้ำหนักรวม {totalWeight}%
+            น้ำหนักงาน(weight)รวม {totalWeight}%
             {totalWeight !== 100 && (totalWeight > 100 ? " (เกิน 100%)" : " (ยังไม่ครบ 100%)")}
           </span>
         </div>
@@ -249,8 +249,8 @@ export default function SelfAssessmentEditor({
                 e.preventDefault();
                 setWeightMsg(
                   totalWeight > 100
-                    ? `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักรวมให้เท่ากับ 100% พอดีก่อนส่ง`
-                    : `น้ำหนักรวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งยังไม่ครบ 100% — กรุณาปรับน้ำหนักรวมให้เท่ากับ 100% พอดีก่อนส่ง`
+                    ? `น้ำหนักงาน(weight)รวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งเกิน 100% — กรุณาปรับน้ำหนักงาน(weight)รวมให้เท่ากับ 100% พอดีก่อนส่ง`
+                    : `น้ำหนักงาน(weight)รวมทุกรายการตอนนี้ ${totalWeight}% ซึ่งยังไม่ครบ 100% — กรุณาปรับน้ำหนักงาน(weight)รวมให้เท่ากับ 100% พอดีก่อนส่ง`
                 );
               }
             }}
@@ -261,7 +261,7 @@ export default function SelfAssessmentEditor({
         </div>
       </form>
 
-      <Modal open={weightMsg !== null} onClose={() => setWeightMsg(null)} title="น้ำหนักรวมทุกรายการต้องเท่ากับ 100%">
+      <Modal open={weightMsg !== null} onClose={() => setWeightMsg(null)} title="น้ำหนักงาน(weight)รวมทุกรายการต้องเท่ากับ 100%">
         {weightMsg}
       </Modal>
     </div>
@@ -297,7 +297,7 @@ function ItemList({
           <div className="min-w-0 flex-1">
             <p className="font-medium">{it.title}</p>
             <p className="mt-0.5 text-xs text-neutral-500">
-              {linkLabel}: {kpiTitle(it.linkedKpiId)} · น้ำหนัก {it.weight}% · ตัวชี้วัด {it.target || "—"}
+              {linkLabel}: {kpiTitle(it.linkedKpiId)} · น้ำหนักงาน(weight) {it.weight}% · ตัวชี้วัด {it.target || "—"}
             </p>
             {it.selfComment && (
               <p className="mt-1 text-xs text-neutral-600">Note: {it.selfComment}</p>

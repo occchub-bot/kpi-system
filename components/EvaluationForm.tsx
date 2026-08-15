@@ -58,7 +58,7 @@ export default function EvaluationForm({
                   <span className="text-neutral-400">#{idx + 1}</span> {it.title || "—"}
                 </p>
                 <p className="mt-0.5 text-xs text-neutral-500">
-                  {it.linkedLabel}: {it.linkedTitle} · น้ำหนัก {it.weight}% · ตัวชี้วัด {it.target || "—"}
+                  {it.linkedLabel}: {it.linkedTitle} · น้ำหนักงาน(weight) {it.weight}% · ตัวชี้วัด {it.target || "—"}
                 </p>
               </div>
               <span className="shrink-0 text-xs text-neutral-500">

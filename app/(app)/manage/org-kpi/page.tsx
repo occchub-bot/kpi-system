@@ -19,7 +19,7 @@ export default async function OrgKpiPage() {
     <div className="max-w-3xl">
       <PageTitle>KPI องค์กร</PageTitle>
       <p className="mb-5 -mt-3 text-sm text-neutral-500">
-        KPI หลักขององค์กร — ใส่เฉพาะหัวข้อ (ไม่มีน้ำหนัก/เวลา) ใช้เป็นตัวให้ฝ่ายเชื่อมต่อ
+        KPI หลักขององค์กร — ใส่เฉพาะหัวข้อ (ไม่มีน้ำหนักงาน(weight)/เวลา) ใช้เป็นตัวให้ฝ่ายเชื่อมต่อ
       </p>
 
       <Section title="เพิ่ม KPI องค์กร">

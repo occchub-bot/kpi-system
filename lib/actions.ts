@@ -721,7 +721,7 @@ export async function saveSelfAssessmentAction(formData: FormData) {
       return;
     }
     if (!(it.weight > 0 && it.weight <= 100)) {
-      await setFlash("น้ำหนักแต่ละรายการต้องมากกว่า 0 และไม่เกิน 100", "error");
+      await setFlash("น้ำหนักงาน(weight)แต่ละรายการต้องมากกว่า 0 และไม่เกิน 100", "error");
       return;
     }
     if (!(it.selfScore >= 0 && it.selfScore <= 100)) {
@@ -736,7 +736,7 @@ export async function saveSelfAssessmentAction(formData: FormData) {
   if (submit) {
     const totalWeight = items.reduce((sum, i) => sum + (Number(i.weight) || 0), 0);
     if (Math.abs(totalWeight - 100) > 0.01) {
-      await setFlash(`น้ำหนักรวมทุกรายการต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%)`, "error");
+      await setFlash(`น้ำหนักงาน(weight)รวมทุกรายการต้องเท่ากับ 100% พอดี (ตอนนี้ ${totalWeight}%)`, "error");
       return;
     }
   }
@@ -873,6 +873,52 @@ export async function saveEvaluationAction(formData: FormData) {
   revalidatePath("/evaluate");
   revalidatePath(`/evaluate/${assessmentId}`);
   revalidatePath("/dashboard");
+}
+
+/** HR รีเซ็ตการประเมินที่ค้าง/ผิดพลาดกลับเป็นร่าง เพื่อให้เจ้าของเริ่มกรอกใหม่ได้ */
+export async function resetAssessmentToDraftAction(formData: FormData) {
+  const me = await requireUser();
+  if (me.role !== "hr" || !me.companyId) return;
+  const assessmentId = s(formData, "assessment_id");
+  if (!assessmentId) return;
+
+  const { data: a } = await supabase
+    .from("assessments")
+    .select("id, company_id, user_id")
+    .eq("id", assessmentId)
+    .maybeSingle();
+
+  if (!a || a.company_id !== me.companyId) {
+    await setFlash("ไม่พบรายการประเมินนี้", "error");
+    return;
+  }
+
+  const { data: owner } = await supabase
+    .from("users")
+    .select("name")
+    .eq("id", a.user_id)
+    .maybeSingle();
+
+  check(
+    await supabase
+      .from("assessments")
+      .update({
+        status: "draft",
+        self_total: null,
+        final_score: null,
+        submitted_at: null,
+        evaluated_at: null,
+        updated_at: nowISO(),
+      })
+      .eq("id", assessmentId)
+  );
+
+  await setFlash(`รีเซ็ตการประเมินของ ${owner?.name ?? ""} กลับเป็นร่างแล้ว`);
+  revalidatePath("/manage/employees");
+  revalidatePath("/evaluate");
+  revalidatePath("/dashboard");
+  revalidatePath("/me/kpi");
+  revalidatePath("/me");
 }
 
 /* ---------------- ประกาศจาก HR ---------------- */

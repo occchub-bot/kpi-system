@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { Th, Td, Tr, Badge, Empty, Modal, Field, Input, Select, Button, SubmitButton, type Tone } from "@/components/ui";
 import PaginatedTable from "@/components/PaginatedTable";
-import { updateEmployeeAction, setUserActiveAction, deleteEmployeeAction } from "@/lib/actions";
+import { updateEmployeeAction, setUserActiveAction, deleteEmployeeAction, resetAssessmentToDraftAction } from "@/lib/actions";
 import CopyPasswordButton from "@/components/CopyPasswordButton";
-import type { Role } from "@/lib/types";
+import type { AssessmentStatus, Role } from "@/lib/types";
 
 export interface EmpRow {
   id: string;
@@ -23,6 +23,8 @@ export interface EmpRow {
   deptName: string;
   managerName: string;
   isActive: boolean;
+  assessmentId?: string | null;
+  assessmentStatus?: AssessmentStatus | null;
 }
 
 export interface Option {
@@ -106,6 +108,8 @@ export default function EmployeeAdminTable({
             <>
               <Th>ชื่อ</Th>
               <Th>EmpID</Th>
+              <Th>อีเมล</Th>
+              <Th>เบอร์โทร</Th>
               <Th>บทบาท</Th>
               <Th>แผนก</Th>
               {showManager && <Th>ผู้บังคับบัญชา</Th>}
@@ -120,6 +124,8 @@ export default function EmployeeAdminTable({
                 <span className="block text-xs font-normal text-neutral-400">{u.position}</span>
               </Td>
               <Td className="text-neutral-500">{u.empId}</Td>
+              <Td className="text-neutral-500">{u.email || "—"}</Td>
+              <Td className="text-neutral-500">{u.phone || "—"}</Td>
               <Td><Badge tone={u.roleTone}>{u.roleLabel}</Badge></Td>
               <Td className="text-neutral-500">{u.deptName}</Td>
               {showManager && <Td className="text-neutral-500">{u.managerName}</Td>}
@@ -151,6 +157,25 @@ export default function EmployeeAdminTable({
                       userId={u.id}
                       className="text-xs text-neutral-500 underline hover:text-brand-800"
                     />
+                    {u.assessmentId && (u.assessmentStatus === "submitted" || u.assessmentStatus === "evaluated") && (
+                      <form
+                        action={resetAssessmentToDraftAction}
+                        onSubmit={(e) => {
+                          if (
+                            !confirm(
+                              `รีเซ็ตการประเมินรอบปัจจุบันของ "${u.name}" กลับเป็นร่าง?\nใช้เมื่อรายการค้าง/ผิดพลาด (เช่น ส่งแล้วแต่ไม่มีรายการ KPI) — คะแนนที่ให้ไปแล้วในรอบนี้จะถูกล้าง และเจ้าของต้องกรอก/ส่งใหม่`
+                            )
+                          ) {
+                            e.preventDefault();
+                          }
+                        }}
+                      >
+                        <input type="hidden" name="assessment_id" value={u.assessmentId} />
+                        <SubmitButton className="text-xs text-amber-600 underline hover:text-amber-800">
+                          รีเซ็ตเป็นร่าง
+                        </SubmitButton>
+                      </form>
+                    )}
                     <form
                       action={deleteEmployeeAction}
                       onSubmit={(e) => {

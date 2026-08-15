@@ -74,7 +74,7 @@ export default async function MyDashboard({
                 <Th>หัวข้อ KPI</Th>
                 <Th>{linkLabel}</Th>
                 <Th>ตัวชี้วัด</Th>
-                <Th>Weight</Th>
+                <Th>น้ำหนักงาน(weight)</Th>
                 <Th className="text-right">ผู้บังคับบัญชา</Th>
               </>
             }
