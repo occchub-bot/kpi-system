@@ -2,7 +2,7 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { loginAction } from "@/lib/actions";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, Input, PasswordInput } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export default async function LoginPage({
           <Input name="email" type="email" placeholder="you@example.com" required autoFocus />
         </Field>
         <Field label="รหัสผ่าน">
-          <Input name="password" type="password" required />
+          <PasswordInput name="password" required />
         </Field>
         {sp.error && (
           <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">

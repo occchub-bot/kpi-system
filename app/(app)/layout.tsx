@@ -37,7 +37,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar
         companyName={company?.name ?? "ทุกบริษัท"}
         sections={buildNav(me)}
-        footer={{ name: me.name, sub: footerSub || roleLabel(me.role) }}
+        footer={{
+          name: me.name,
+          sub: footerSub || roleLabel(me.role),
+          email: me.email,
+          phone: me.phone,
+        }}
         logout={logoutAction}
       />
 

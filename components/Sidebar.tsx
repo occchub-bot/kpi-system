@@ -14,7 +14,7 @@ export default function Sidebar({
 }: {
   companyName: string;
   sections: NavSection[];
-  footer: { name: string; sub: string };
+  footer: { name: string; sub: string; email?: string; phone?: string };
   logout: () => void;
 }) {
   const pathname = usePathname();
@@ -65,6 +65,8 @@ export default function Sidebar({
       <div className="border-t border-[var(--border)] px-6 py-4">
         <p className="text-sm font-semibold">{footer.name}</p>
         <p className="text-xs text-neutral-500">{footer.sub}</p>
+        {footer.email && <p className="mt-1 truncate text-xs text-neutral-500">{footer.email}</p>}
+        {footer.phone && <p className="text-xs text-neutral-500">{footer.phone}</p>}
         <div className="mt-3 flex items-center gap-3">
           <Link href="/account" className="text-xs text-neutral-500 underline hover:text-brand-800">
             เปลี่ยนรหัสผ่าน
