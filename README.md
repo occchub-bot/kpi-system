@@ -30,59 +30,50 @@ npm ci                     # postinstall เรียก prisma generate ให�
 npm run db:migrate         # สร้างตารางทั้งหมด
 npm run db:seed            # ข้อมูลตัวอย่าง 2 บริษัท (ครั้งแรกเท่านั้น ข้ามได้ถ้าจะเริ่มจากศูนย์)
 npm run build
-npm start                  # ฟังที่พอร์ต 3000 (เปลี่ยนได้ด้วย PORT ใน .env)
+npm start                  # ทดสอบเฉย ๆ ของจริงให้ pm2 คุมในหัวข้อ 3 (พอร์ต 3777)
 ```
 
-### 3. ให้รันค้างเป็น service (systemd)
+### 3. ให้รันค้างด้วย pm2
 
-`/etc/systemd/system/kpi-system.service`
-
-```ini
-[Unit]
-Description=KPI System
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=kpi
-WorkingDirectory=/srv/kpi-system
-EnvironmentFile=/srv/kpi-system/.env
-ExecStart=/usr/bin/npm start
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
+แอปฟังที่ **พอร์ต 3777** (กำหนดใน `ecosystem.config.js` ที่อยู่ใน repo)
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now kpi-system
-sudo journalctl -u kpi-system -f
+sudo npm i -g pm2
+cd /srv/kpi-system
+pm2 startOrReload ecosystem.config.js --update-env
+pm2 save
+pm2 startup            # copy คำสั่งที่มันพิมพ์ออกมาไปรัน เพื่อให้ขึ้นเองหลังรีบูต
+
+pm2 status
+pm2 logs kpi-system
 ```
 
-### 4. เปิดให้เข้าจากภายนอกด้วย HTTPS
+`DATABASE_URL` อ่านจาก `.env` (Next โหลดให้เอง) ไม่ต้องใส่ใน pm2
+แต่ **`PORT` ต้องอยู่ใน `ecosystem.config.js`** เพราะ `next start` อ่าน PORT ตอน CLI เริ่ม
 
-อย่า publish พอร์ต 3000 ออกเน็ตตรง ๆ ให้วาง reverse proxy คั่นไว้ ตัวอย่าง nginx:
+### 4. nginx (พอร์ต 80)
 
-```nginx
-server {
-    server_name kpi.example.com;
+ไฟล์ตัวอย่างอยู่ใน repo แล้ว: `deploy/nginx/kpi-occc.rnk.icu.conf`
+proxy `kpi-occc.rnk.icu` -> `127.0.0.1:3777`
 
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+```bash
+sudo cp /srv/kpi-system/deploy/nginx/kpi-occc.rnk.icu.conf /etc/nginx/sites-available/kpi-occc.rnk.icu
+sudo ln -s /etc/nginx/sites-available/kpi-occc.rnk.icu /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default      # ถ้าไม่ได้ใช้ default site
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-แล้วขอใบรับรองด้วย `sudo certbot --nginx -d kpi.example.com`
+ไม่ต้องเปิดพอร์ต 3777 ออกเน็ต ให้เปิดแค่ 80 (และ 443 ตอนทำ SSL)
 
-### 5. อัปเดตเวอร์ชันใหม่
+```bash
+sudo ufw allow 80/tcp
+```
+
+ทำ SSL ทีหลังด้วย `sudo certbot --nginx -d kpi-occc.rnk.icu` (certbot จะเติม block 443 ให้เอง)
+
+### 5. อัปเดตเวอร์ชันใหม่ (ทำมือ)
+
+ปกติใช้ GitHub Actions ในหัวข้อ 6 แทน แต่ถ้าจะทำมือ:
 
 ```bash
 cd /srv/kpi-system
@@ -90,10 +81,48 @@ git pull
 npm ci
 npm run db:migrate         # apply migration ใหม่ (ถ้ามี) — ต้องรันก่อน build เสมอ
 npm run build
-sudo systemctl restart kpi-system
+pm2 reload kpi-system --update-env
 ```
 
-### 6. สำรอง / กู้คืนข้อมูล
+### 6. Deploy อัตโนมัติด้วย GitHub Actions
+
+workflow: `.github/workflows/deploy.yml` — รันด้วยมือที่แท็บ **Actions → Deploy → Run workflow**
+ต้องพิมพ์รหัสผ่านให้ตรงกับ secret `DEPLOY_PASSWORD` ก่อน ถึงจะ ssh เข้าเซิร์ฟเวอร์แล้วรัน
+`git reset --hard origin/<branch>` → `npm ci` → `db:migrate` → `build` → `pm2 startOrReload`
+แล้วเช็ค health ด้วย `curl http://127.0.0.1:3777/login`
+
+**Secrets ที่ต้องตั้ง** (Settings → Secrets and variables → Actions → New repository secret)
+
+| ชื่อ | จำเป็น | ตัวอย่าง / ค่าเริ่มต้น |
+|---|---|---|
+| `DEPLOY_PASSWORD` | ✅ | รหัสผ่านยืนยันก่อน deploy |
+| `SSH_PRIVATE_KEY` | ✅ | private key ทั้งไฟล์ รวมบรรทัด `-----BEGIN...` / `-----END...` |
+| `SSH_HOST` | ✅ | `203.0.113.10` หรือโดเมน |
+| `SSH_USER` | ✅ | `kpi` (ผู้ใช้ที่เป็นเจ้าของ `/srv/kpi-system`) |
+| `SSH_PORT` | – | ไม่ตั้ง = `22` |
+| `APP_DIR` | – | ไม่ตั้ง = `/srv/kpi-system` |
+| `PM2_NAME` | – | ไม่ตั้ง = `kpi-system` |
+| `APP_PORT` | – | ไม่ตั้ง = `3777` (ใช้เช็ค health อย่างเดียว ตัวจริงอยู่ใน `ecosystem.config.js`) |
+
+เตรียมฝั่งเซิร์ฟเวอร์ (ทำครั้งเดียว)
+
+```bash
+# บนเครื่องตัวเอง: สร้างคีย์เฉพาะงาน deploy (ห้ามใส่ passphrase — GA พิมพ์ให้ไม่ได้)
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/kpi_deploy -N ""
+
+# บนเซิร์ฟเวอร์ (รันในฐานะ user kpi): อนุญาต public key
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo '<เนื้อหาไฟล์ kpi_deploy.pub>' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+pm2 รันในสิทธิ์ user เดียวกับที่ ssh เข้ามา จึง **ไม่ต้องตั้ง sudo ให้ workflow เลย**
+(ขอแค่ `pm2` อยู่ใน PATH ของ user นั้น และเคย `pm2 save` ไว้แล้ว)
+
+เอา **ไฟล์ private key** (`~/.ssh/kpi_deploy` ไม่ใช่ `.pub`) ไปใส่ใน secret `SSH_PRIVATE_KEY`
+`.env` บนเซิร์ฟเวอร์ถูก gitignore ไว้ `git reset --hard` จึงไม่ทับ
+
+### 7. สำรอง / กู้คืนข้อมูล
 
 ต้องมี `pg_dump` ใน PATH (แพ็กเกจ `postgresql-client`)
 

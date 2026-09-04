@@ -1,0 +1,98 @@
+name: Deploy
+
+# รันด้วยมือเท่านั้น: Actions -> Deploy -> Run workflow
+# ต้องพิมพ์รหัสผ่านให้ตรงกับ secret DEPLOY_PASSWORD ก่อน ถึงจะ deploy
+on:
+  workflow_dispatch:
+    inputs:
+      password:
+        description: "รหัสผ่านยืนยันการ deploy"
+        required: true
+        type: string
+      seed:
+        description: "รัน db:seed ด้วย (ครั้งแรกเท่านั้น)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: ตรวจรหัสผ่าน
+    runs-on: ubuntu-latest
+    steps:
+      - name: ตรวจรหัสผ่านที่กรอกมา
+        env:
+          GIVEN: ${{ inputs.password }}
+          EXPECTED: ${{ secrets.DEPLOY_PASSWORD }}
+        run: |
+          if [ -z "$EXPECTED" ]; then
+            echo "::error::ยังไม่ได้ตั้ง secret DEPLOY_PASSWORD ใน repo"
+            exit 1
+          fi
+          if [ "$GIVEN" != "$EXPECTED" ]; then
+            echo "::error::รหัสผ่านไม่ถูกต้อง ยกเลิกการ deploy"
+            exit 1
+          fi
+          echo "รหัสผ่านถูกต้อง"
+
+  deploy:
+    name: Deploy ขึ้นเซิร์ฟเวอร์
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: ตั้งค่า SSH key
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: git pull + migrate + build + pm2 reload
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          APP_DIR: ${{ secrets.APP_DIR || '/srv/kpi-system' }}
+          PM2_NAME: ${{ secrets.PM2_NAME || 'kpi-system' }}
+          APP_PORT: ${{ secrets.APP_PORT || '3777' }}
+          BRANCH: ${{ github.ref_name }}
+          RUN_SEED: ${{ inputs.seed }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" APP_DIR="$APP_DIR" PM2_NAME="$PM2_NAME" APP_PORT="$APP_PORT" BRANCH="$BRANCH" RUN_SEED="$RUN_SEED" 'bash -ex -s' <<'REMOTE'
+          # ssh แบบ non-interactive ไม่โหลด .bashrc ให้ครบ ถ้าใช้ nvm ต้อง source เอง
+          if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
+          export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
+
+          cd "$APP_DIR"
+          git fetch --prune origin
+          git checkout -B "$BRANCH" "origin/$BRANCH"   # .env ถูก gitignore ไว้ ไม่โดนทับ
+
+          npm ci
+          npm run db:migrate            # ต้องรันก่อน build เสมอ
+          if [ "$RUN_SEED" = "true" ]; then npm run db:seed; fi
+          npm run build
+
+          # startOrReload = start ถ้ายังไม่เคยรัน, reload ถ้ามี process อยู่แล้ว
+          pm2 startOrReload ecosystem.config.js --update-env
+          pm2 save
+
+          # health check: ต้องได้ 200 จาก /login ภายใน ~30 วิ
+          for i in $(seq 1 15); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:$APP_PORT/login"; then
+              echo "แอปขึ้นแล้วที่พอร์ต $APP_PORT"
+              exit 0
+            fi
+            sleep 2
+          done
+          pm2 logs "$PM2_NAME" --lines 50 --nostream
+          echo "แอปไม่ตอบที่พอร์ต $APP_PORT"
+          exit 1
+          REMOTE
