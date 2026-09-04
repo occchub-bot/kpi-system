@@ -100,19 +100,40 @@ jobs:
           if [ "$RUN_SEED" = "true" ]; then npm run db:seed; fi
           npm run build
 
+          # PORT/PM2_NAME ถูกอ่านโดย ecosystem.config.js -> พอร์ตที่แอปเปิดกับที่ health check
+          # ยิงจึงเป็นค่าเดียวกันเสมอ
+          export PORT="$APP_PORT"
+
           # startOrReload = start ถ้ายังไม่เคยรัน, reload ถ้ามี process อยู่แล้ว
-          pm2 startOrReload ecosystem.config.js --update-env
+          # ถ้าค้างอยู่ในสถานะ errored จน reload ไม่ได้ ให้ลบทิ้งแล้ว start ใหม่
+          pm2 startOrReload ecosystem.config.js --update-env || {
+            pm2 delete "$PM2_NAME" || true
+            pm2 start ecosystem.config.js --update-env
+          }
           pm2 save
 
-          # health check: ต้องได้ 200 จาก /login ภายใน ~30 วิ
-          for i in $(seq 1 15); do
+          # health check: ต้องได้ 200 จาก /login ภายใน ~40 วิ
+          for i in $(seq 1 20); do
             if curl -fsS -o /dev/null "http://127.0.0.1:$APP_PORT/login"; then
               echo "แอปขึ้นแล้วที่พอร์ต $APP_PORT"
+              pm2 describe "$PM2_NAME" || true
               exit 0
             fi
             sleep 2
           done
-          pm2 logs "$PM2_NAME" --lines 50 --nostream
+
+          echo "===== pm2 list ====="
+          pm2 list || true
+          echo "===== pm2 describe ====="
+          pm2 describe "$PM2_NAME" || true
+          echo "===== log ของแอป ====="
+          pm2 logs "$PM2_NAME" --lines 80 --nostream || true
+          echo "===== log ของ pm2 daemon (spawn error โผล่ที่นี่) ====="
+          tail -n 80 "$HOME/.pm2/pm2.log" || true
+          echo "===== พอร์ตที่เปิดฟังอยู่ ====="
+          ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true
+          echo "===== node/npm ====="
+          command -v node && node -v || true
           echo "แอปไม่ตอบที่พอร์ต $APP_PORT"
           exit 1
           REMOTE
