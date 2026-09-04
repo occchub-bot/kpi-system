@@ -32,14 +32,12 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
-!.env.local.example
+!.env.example
 
-# vercel
-.vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
-# local JSON data store (prototype) — committed so demo seeds on Vercel
-# /data/store.json
+# database backups (npm run db:backup)
+/backups

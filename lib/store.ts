@@ -1,5 +1,5 @@
-import { supabase } from "./supabase";
-import type { Assessment, DB } from "./types";
+import { prisma } from "./prisma";
+import type { Assessment, AssessmentItem, DB } from "./types";
 import {
   toAnnouncement,
   toAssessment,
@@ -13,71 +13,49 @@ import {
 } from "./mappers";
 
 /**
- * โหลดข้อมูลทั้งหมดจาก Supabase แล้วประกอบกลับเป็นรูปทรง DB เดิม
- * (เหมือนที่เคยอ่านทั้งไฟล์ data/store.json ในเวอร์ชันก่อนหน้า)
+ * โหลดข้อมูลทั้งหมดจาก Postgres แล้วประกอบกลับเป็นรูปทรง DB เดิม
  * เหมาะกับสเกลข้อมูลของแอปนี้ (หลักสิบ-ร้อยแถวต่อบริษัท) — query ตรง ๆ ต่อครั้งไม่คุ้มกว่านี้
+ *
+ * ใช้ $transaction เพื่อให้ทั้ง 9 query อ่านจาก snapshot เดียวกัน — ไม่มีโอกาสได้ภาพครึ่ง ๆ กลาง ๆ
+ * ถ้ามีคนเขียนข้อมูลอยู่ระหว่างที่หน้ากำลังโหลด
  */
 export async function readDB(): Promise<DB> {
-  const [
-    companiesRes,
-    divisionsRes,
-    departmentsRes,
-    usersRes,
-    cyclesRes,
-    kpisRes,
-    assessmentsRes,
-    itemsRes,
-    announcementsRes,
-  ] = await Promise.all([
-    // Postgres/PostgREST ไม่รับประกันลำดับแถวถ้าไม่ใส่ order — ใส่ไว้ให้ลำดับคงที่
-    // เหมือนตอนอ่านจากไฟล์ JSON เดิม ใส่ `id` เป็น tiebreaker เสมอเพราะข้อมูล seed
-    // เดิมหลายแถวมี created_at ตรงกันเป๊ะ (constant เดียวกันตอน seed) ทำให้ order by
-    // created_at อย่างเดียวยังสุ่มลำดับได้ในแถวที่เวลาเท่ากัน
-    supabase.from("companies").select("*").order("created_at").order("id"),
-    supabase.from("divisions").select("*").order("id"),
-    supabase.from("departments").select("*").order("id"),
-    supabase.from("users").select("*").order("created_at").order("id"),
-    supabase.from("cycles").select("*").order("created_at").order("id"),
-    supabase.from("kpis").select("*").order("created_at").order("id"),
-    supabase.from("assessments").select("*").order("created_at").order("id"),
-    supabase.from("assessment_items").select("*").order("position"),
-    supabase.from("announcements").select("*").order("created_at").order("id"),
-  ]);
+  // Postgres ไม่รับประกันลำดับแถวถ้าไม่ใส่ order — ใส่ `id` เป็น tiebreaker เสมอ
+  // เพราะข้อมูล seed หลายแถวมี createdAt ตรงกันเป๊ะ (constant เดียวกันตอน seed)
+  // ทำให้ order by createdAt อย่างเดียวยังสุ่มลำดับได้ในแถวที่เวลาเท่ากัน
+  const [companies, divisions, departments, users, cycles, kpis, assessments, itemRows, announcements] =
+    await prisma.$transaction([
+      prisma.company.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+      prisma.division.findMany({ orderBy: { id: "asc" } }),
+      prisma.department.findMany({ orderBy: { id: "asc" } }),
+      prisma.user.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+      prisma.cycle.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+      prisma.kpi.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+      prisma.assessment.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+      prisma.assessmentItem.findMany({ orderBy: { position: "asc" } }),
+      prisma.announcement.findMany({ orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+    ]);
 
-  for (const res of [
-    companiesRes,
-    divisionsRes,
-    departmentsRes,
-    usersRes,
-    cyclesRes,
-    kpisRes,
-    assessmentsRes,
-    itemsRes,
-    announcementsRes,
-  ]) {
-    if (res.error) throw new Error(`Supabase read failed: ${res.error.message}`);
-  }
-
-  const itemsByAssessment = new Map<string, ReturnType<typeof toAssessmentItem>[]>();
-  for (const row of itemsRes.data ?? []) {
-    const arr = itemsByAssessment.get(row.assessment_id) ?? [];
+  const itemsByAssessment = new Map<string, AssessmentItem[]>();
+  for (const row of itemRows) {
+    const arr = itemsByAssessment.get(row.assessmentId) ?? [];
     arr.push(toAssessmentItem(row));
-    itemsByAssessment.set(row.assessment_id, arr);
+    itemsByAssessment.set(row.assessmentId, arr);
   }
 
-  const assessments: Assessment[] = (assessmentsRes.data ?? []).map((r) =>
+  const assessmentEntities: Assessment[] = assessments.map((r) =>
     toAssessment(r, itemsByAssessment.get(r.id) ?? [])
   );
 
   return {
-    companies: (companiesRes.data ?? []).map(toCompany),
-    divisions: (divisionsRes.data ?? []).map(toDivision),
-    departments: (departmentsRes.data ?? []).map(toDepartment),
-    users: (usersRes.data ?? []).map(toUser),
-    cycles: (cyclesRes.data ?? []).map(toCycle),
-    kpis: (kpisRes.data ?? []).map(toKpi),
-    assessments,
-    announcements: (announcementsRes.data ?? []).map(toAnnouncement),
+    companies: companies.map(toCompany),
+    divisions: divisions.map(toDivision),
+    departments: departments.map(toDepartment),
+    users: users.map(toUser),
+    cycles: cycles.map(toCycle),
+    kpis: kpis.map(toKpi),
+    assessments: assessmentEntities,
+    announcements: announcements.map(toAnnouncement),
   };
 }
 
@@ -86,8 +64,4 @@ let counter = 0;
 export function newId(prefix: string): string {
   counter += 1;
   return `${prefix}-${Date.now().toString(36)}${counter.toString(36)}`;
-}
-
-export function nowISO(): string {
-  return new Date().toISOString();
 }

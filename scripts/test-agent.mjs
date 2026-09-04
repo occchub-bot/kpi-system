@@ -11,13 +11,16 @@
 // also what makes this a faithful test of the real server action code path, not a mock.
 //
 // Requires: dev server already running (see README, PORT=3002 npm run dev), and for --full mode,
-// SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY in the environment (same values as .env.local) so the
-// script can read/clean up rows the UI itself doesn't expose (assessment_items, hard delete of the
-// throwaway user — the app's own UI only supports deactivating real employees, never deleting).
+// DATABASE_URL in the environment (same value as .env) so the script can read/clean up rows the UI
+// itself doesn't expose (assessment_items, hard delete of the throwaway user — the app's own UI only
+// supports deactivating real employees, never deleting).
 
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { randomBytes, scryptSync } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const BASE = process.argv.find((a) => a.startsWith("http")) || "http://localhost:3002";
 const FULL = process.argv.includes("--full");
@@ -27,7 +30,8 @@ function loadDotEnv(path) {
   const out = {};
   for (const line of readFileSync(path, "utf-8").split("\n")) {
     const m = line.match(/^([A-Z_]+)=(.*)$/);
-    if (m) out[m[1]] = m[2].trim();
+    // ค่าใน .env อาจใส่เครื่องหมายคำพูดครอบไว้ — ถอดออกก่อน
+    if (m) out[m[1]] = m[2].trim().replace(/^(['"])(.*)\1$/, "$2");
   }
   return out;
 }
@@ -48,12 +52,80 @@ function extractActionIds(html) {
   return { ids, named };
 }
 
-/** For pages where we know only 2 action ids exist (logout + the one we want) */
-function pickNonLogoutActionId(html) {
-  const { ids } = extractActionIds(html);
-  const other = ids.find((id) => id !== "00bcffa75fbaf5ffb175e9871e1da4d70403b171b9");
-  if (!other) throw new Error("could not find target action id — page markup may have changed. ids seen: " + ids.join(","));
-  return other;
+// Resolving a server action id has to come from the running server, never from local build output:
+// the id is a content hash that also depends on the project path, so a dev build, a production build
+// and the build inside the container all hash the same action differently. Sending the wrong one
+// gets "Failed to find Server Action" (500).
+//
+// Where the id lives depends on how the action is used:
+//   <form action={x}> in a server component -> hidden $ACTION_ID_ input in the HTML
+//   action passed as a prop to a client component -> id/name pair in the flight payload
+//   <form action={x}> inside a client component -> createServerReference(...) in a JS chunk
+const chunkActionIds = new Map();
+const scannedChunks = new Set();
+
+/** ดึง id/ชื่อ action ออกจาก JS chunk ของหน้า (กรณี client component เรียก server action) */
+async function scanChunkActionIds(html) {
+  const srcs = [...new Set([...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]))];
+  for (const src of srcs) {
+    const url = src.startsWith("http") ? src : `${BASE}${src}`;
+    if (scannedChunks.has(url)) continue;
+    scannedChunks.add(url);
+    let js;
+    try {
+      js = await (await fetch(url)).text();
+    } catch {
+      continue;
+    }
+    // prod (minified):  createServerReference)("<id>",l.callServer,void 0,l.findSourceMapURL,"<name>")
+    // dev  (turbopack):  ...["createServerReference"])("<id>", <long module refs> , "<name>")
+    // จับแบบกว้าง ๆ: หา id แล้วมองหาชื่อที่ลงท้ายด้วย Action ตัวถัดไป โดยเช็กว่ามาจาก
+    // createServerReference จริง (ดูข้อความก่อนหน้า) — ครอบคลุมทั้งสองรูปแบบโดยไม่ผูกกับ bundler
+    for (const m of js.matchAll(/"([a-f0-9]{40,42})"/g)) {
+      const before = js.slice(Math.max(0, m.index - 300), m.index);
+      if (!before.includes("createServerReference")) continue;
+      const after = js.slice(m.index, m.index + 1500);
+      const name = after.match(/"([A-Za-z_$][\w$]*Action)"/)?.[1];
+      if (name) chunkActionIds.set(name, m[1]);
+    }
+  }
+}
+
+/**
+ * หา action id จากฟอร์มที่มีช่องกรอกครบตามที่ระบุ — ใช้กับหน้าที่มีหลายฟอร์มของ server component
+ * (prod build ไม่ฝังชื่อ action มาใน HTML เหมือน dev จึงต้องดูจากหน้าตาฟอร์มแทน)
+ */
+function actionIdByFormFields(html, requiredFields) {
+  const matches = new Set();
+  for (const part of html.split("<form").slice(1)) {
+    const fragment = part.split("</form>")[0];
+    const id = fragment.match(/\$ACTION_ID_([a-f0-9]+)/)?.[1];
+    if (!id) continue;
+    const fields = new Set([...fragment.matchAll(/name="([a-z_]+)"/g)].map((m) => m[1]));
+    if (requiredFields.every((f) => fields.has(f))) matches.add(id);
+  }
+  if (matches.size > 1) {
+    throw new Error(`form fields ${requiredFields.join("+")} matched more than one action`);
+  }
+  return [...matches][0];
+}
+
+/** id ของ server action ตามชื่อ export — ต้องส่ง html ของหน้าที่เพิ่งโหลดมาด้วย */
+async function actionId(html, name, formFields) {
+  const { named, ids } = extractActionIds(html);
+  if (named.has(name)) return named.get(name);
+
+  if (!chunkActionIds.has(name)) await scanChunkActionIds(html);
+  if (chunkActionIds.has(name)) return chunkActionIds.get(name);
+
+  if (formFields) {
+    const byFields = actionIdByFormFields(html, formFields);
+    if (byFields) return byFields;
+  }
+
+  // หน้าที่มีฟอร์มเดียว (เช่น /login) — id ที่โผล่มาตัวเดียวคือตัวที่ต้องการแน่นอน
+  if (ids.length === 1) return ids[0];
+  throw new Error(`could not resolve action id for ${name}. ids seen: ${ids.join(",") || "(none)"}`);
 }
 
 async function postAction(path, cookie, actionId, fields) {
@@ -71,8 +143,11 @@ async function postAction(path, cookie, actionId, fields) {
   return { status: res.status, location: res.headers.get("location"), cookies, html };
 }
 
-async function realLogin(actionId, email) {
-  const r = await postAction("/login", undefined, actionId, { email });
+// ทุกบัญชีในข้อมูลตัวอย่างใช้รหัสผ่านเดียวกันตามที่ prisma/seed.mjs ตั้งไว้
+const TEST_PASSWORD = process.env.SEED_PASSWORD || "kpi-demo-2569";
+
+async function realLogin(actionId, email, password = TEST_PASSWORD) {
+  const r = await postAction("/login", undefined, actionId, { email, password });
   const uidCookie = r.cookies.find((c) => c.startsWith("uid="));
   return { ...r, uidCookie: uidCookie ? uidCookie.split(";")[0] : null };
 }
@@ -231,26 +306,22 @@ async function runRouteCrawl(loginActionId) {
 
 /* ---------------- part 2: real evaluation flow (--full only) ---------------- */
 
-async function sb(env, path, init) {
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1${path}`, {
-    ...init,
-    headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: init?.method === "POST" ? "return=representation" : undefined,
-      ...(init?.headers || {}),
-    },
-  });
-  if (!res.ok && res.status !== 204) throw new Error(`Supabase ${path} -> ${res.status}: ${await res.text()}`);
-  return res.status === 204 ? null : res.json();
+// numeric columns come back as Prisma Decimal objects, never plain numbers
+function n(v) {
+  return v === null || v === undefined ? v : Number(v);
+}
+
+// ต้องตรงกับ lib/password.ts (scrypt, KEY_LEN 64, เก็บเป็น "salt:hash" hex)
+function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
 }
 
 function record(name, ok, detail) {
   results.push({ role: "(flow)", path: name, expected: "works correctly", actual: ok ? "OK" : "FAILED", ok, note: detail || "" });
 }
 
-async function runEvaluationFlow(env, loginActionId) {
+async function runEvaluationFlow(db, loginActionId) {
   log("\n-- full evaluation flow (throwaway test employee) --");
   const testEmail = `test-agent-${Date.now()}@siamfoods.co.th`;
   let testUserId;
@@ -259,8 +330,7 @@ async function runEvaluationFlow(env, loginActionId) {
     // 1. HR creates the throwaway employee
     const hrLogin = await realLogin(loginActionId, "hr@siamfoods.co.th");
     const empPage = await get("/manage/employees", hrLogin.uidCookie);
-    const { named } = extractActionIds(empPage.body);
-    const addEmpId = named.get("addEmployeeAction");
+    const addEmpId = await actionId(empPage.body, "addEmployeeAction", ["emp_id", "position", "manager_id"]);
     if (!addEmpId) throw new Error("could not find addEmployeeAction id on /manage/employees");
 
     const created = await postAction("/manage/employees", hrLogin.uidCookie, addEmpId, {
@@ -274,17 +344,24 @@ async function runEvaluationFlow(env, loginActionId) {
       position: "QA Test",
       manager_id: "u-c1-d1p1-mgr",
     });
-    const [row] = await sb(env, `/users?select=id&email=eq.${testEmail}`);
+    const row = await db.user.findFirst({ where: { email: testEmail }, select: { id: true } });
     testUserId = row?.id;
     record("HR creates employee", created.status === 200 && !!testUserId, `user id=${testUserId}`);
     if (!testUserId) return;
+
+    // addEmployeeAction สุ่มรหัสผ่านแล้วโชว์ครั้งเดียวในหน้าจอ อ่านกลับจาก HTML ไม่ได้
+    // ตั้งทับเป็นรหัสที่รู้อยู่แล้ว เพื่อให้ล็อกอินเป็นพนักงานคนนี้ต่อได้
+    await db.user.update({
+      where: { id: testUserId },
+      data: { passwordHash: hashPassword(TEST_PASSWORD) },
+    });
 
     // 2. employee logs in, self-assessment form must be present and unlocked
     const empLogin = await realLogin(loginActionId, testEmail);
     record("new employee can log in", !!empLogin.uidCookie);
     const kpiPage = await get("/me/kpi", empLogin.uidCookie);
     record("self-assessment form renders (unlocked)", kpiPage.body.includes("บันทึกร่าง"));
-    const selfActionId = pickNonLogoutActionId(kpiPage.body);
+    const selfActionId = await actionId(kpiPage.body, "saveSelfAssessmentAction");
 
     // 3. submit self-assessment, weight 60/40, self scores 80/90 -> expect self_total 84
     const items = [
@@ -297,11 +374,11 @@ async function runEvaluationFlow(env, loginActionId) {
       remark: "QA automated test run",
       intent: "submit",
     });
-    const [assessment] = await sb(env, `/assessments?select=*&user_id=eq.${testUserId}`);
+    const assessment = await db.assessment.findFirst({ where: { userId: testUserId } });
     record(
       "self-assessment submits with correct weighted self_total",
-      assessment?.status === "submitted" && assessment?.self_total === 84,
-      `status=${assessment?.status} self_total=${assessment?.self_total} (expected 84)`
+      assessment?.status === "submitted" && n(assessment?.selfTotal) === 84,
+      `status=${assessment?.status} self_total=${n(assessment?.selfTotal)} (expected 84)`
     );
     if (!assessment) return;
 
@@ -309,17 +386,17 @@ async function runEvaluationFlow(env, loginActionId) {
     const mgrLogin = await realLogin(loginActionId, "staff002@siamfoods.co.th");
     const evalPage = await get(`/evaluate/${assessment.id}`, mgrLogin.uidCookie);
     record("manager sees the submitted assessment", evalPage.body.includes("QA test KPI item"));
-    const evalActionId = pickNonLogoutActionId(evalPage.body);
+    const evalActionId = await actionId(evalPage.body, "saveEvaluationAction");
     const scores = { "it-test-1": { score: 70, comment: "mgr comment 1" }, "it-test-2": { score: 85, comment: "mgr comment 2" } };
     await postAction(`/evaluate/${assessment.id}`, mgrLogin.uidCookie, evalActionId, {
       assessment_id: assessment.id,
       scores: JSON.stringify(scores),
     });
-    const [finalRow] = await sb(env, `/assessments?select=*&id=eq.${assessment.id}`);
+    const finalRow = await db.assessment.findUnique({ where: { id: assessment.id } });
     record(
       "manager evaluation computes correct weighted final_score",
-      finalRow?.status === "evaluated" && finalRow?.final_score === 76,
-      `status=${finalRow?.status} final_score=${finalRow?.final_score} (expected 76)`
+      finalRow?.status === "evaluated" && n(finalRow?.finalScore) === 76,
+      `status=${finalRow?.status} final_score=${n(finalRow?.finalScore)} (expected 76)`
     );
 
     // 5. dashboards must render the new data without error
@@ -333,12 +410,9 @@ async function runEvaluationFlow(env, loginActionId) {
   } finally {
     // cleanup — hard delete since the app's own UI cannot delete users, only deactivate
     if (testUserId) {
-      const [a] = await sb(env, `/assessments?select=id&user_id=eq.${testUserId}`);
-      if (a) {
-        await sb(env, `/assessment_items?assessment_id=eq.${a.id}`, { method: "DELETE" });
-        await sb(env, `/assessments?id=eq.${a.id}`, { method: "DELETE" });
-      }
-      await sb(env, `/users?id=eq.${testUserId}`, { method: "DELETE" });
+      // assessment_items ถูกลบตามด้วย on delete cascade ของ FK
+      await db.assessment.deleteMany({ where: { userId: testUserId } });
+      await db.user.delete({ where: { id: testUserId } });
       log(`-- cleaned up throwaway test employee ${testUserId} --`);
     }
   }
@@ -350,24 +424,27 @@ async function main() {
   log(`== KPI system test agent — target ${BASE}${FULL ? " (full mode)" : ""} ==\n`);
 
   const loginPage = await (await fetch(`${BASE}/login`)).text();
-  const loginActionId = extractActionIds(loginPage).named.get("loginAction") || pickNonLogoutActionIdSafe(loginPage);
+  const loginActionId = await actionId(loginPage, "loginAction");
   if (!loginActionId) throw new Error("could not find login $ACTION_ID — login form markup may have changed");
 
   await runRouteCrawl(loginActionId);
 
   if (FULL) {
     const here = dirname(fileURLToPath(import.meta.url));
-    const envFromFile = loadDotEnv(join(here, ".env.local")) ?? {};
-    const envFromParent = loadDotEnv(join(here, "..", ".env.local"));
-    const env = {
-      SUPABASE_URL: process.env.SUPABASE_URL || envFromFile.SUPABASE_URL || envFromParent.SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY:
-        process.env.SUPABASE_SERVICE_ROLE_KEY || envFromFile.SUPABASE_SERVICE_ROLE_KEY || envFromParent.SUPABASE_SERVICE_ROLE_KEY,
-    };
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
-      log("\n[skipped --full] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not found in env or alongside this script.");
+    const envFromFile = loadDotEnv(join(here, ".env")) ?? {};
+    const envFromParent = loadDotEnv(join(here, "..", ".env"));
+    const connectionString =
+      process.env.DATABASE_URL || envFromFile.DATABASE_URL || envFromParent.DATABASE_URL;
+
+    if (!connectionString) {
+      log("\n[skipped --full] DATABASE_URL not found in env or alongside this script.");
     } else {
-      await runEvaluationFlow(env, loginActionId);
+      const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+      try {
+        await runEvaluationFlow(db, loginActionId);
+      } finally {
+        await db.$disconnect();
+      }
     }
   }
 
@@ -382,14 +459,6 @@ async function main() {
     for (const r of fails) log(`- [${r.role}] ${r.path}: expected ${r.expected}, got ${r.actual}${r.note ? " — " + r.note : ""}`);
   }
   process.exitCode = fails.length ? 1 : 0;
-}
-
-function pickNonLogoutActionIdSafe(html) {
-  try {
-    return pickNonLogoutActionId(html);
-  } catch {
-    return undefined;
-  }
 }
 
 main().catch((e) => {

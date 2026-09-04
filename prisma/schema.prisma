@@ -1,0 +1,238 @@
+// ============================================================
+// KPI System — Prisma schema
+// ชื่อ field ในโมเดลเป็น camelCase (ตรงกับ lib/types.ts)
+// แล้ว @map ลงคอลัมน์ snake_case จริงใน Postgres
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------- enums ----------------
+
+enum UserRole {
+  admin
+  hr
+  ceo
+  division_head
+  dept_manager
+  employee
+
+  @@map("user_role")
+}
+
+enum KpiLevel {
+  org
+  division
+  department
+
+  @@map("kpi_level")
+}
+
+enum AssessmentStatus {
+  draft
+  submitted
+  evaluated
+
+  @@map("assessment_status")
+}
+
+// ---------------- models ----------------
+
+model Company {
+  id        String   @id
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  divisions     Division[]
+  departments   Department[]
+  users         User[]
+  cycles        Cycle[]
+  kpis          Kpi[]
+  assessments   Assessment[]
+  announcements Announcement[]
+
+  @@map("companies")
+}
+
+model Division {
+  id         String  @id
+  companyId  String  @map("company_id")
+  name       String
+  headUserId String? @map("head_user_id")
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  head        User?        @relation("DivisionHead", fields: [headUserId], references: [id], onDelete: SetNull)
+  departments Department[]
+  members     User[]       @relation("DivisionMembers")
+  kpis        Kpi[]
+
+  @@index([companyId], map: "idx_divisions_company")
+  @@map("divisions")
+}
+
+model Department {
+  id         String  @id
+  companyId  String  @map("company_id")
+  divisionId String  @map("division_id")
+  name       String
+  headUserId String? @map("head_user_id")
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  division Division @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+  head     User?    @relation("DepartmentHead", fields: [headUserId], references: [id], onDelete: SetNull)
+  members  User[]   @relation("DepartmentMembers")
+  kpis     Kpi[]
+
+  @@index([companyId], map: "idx_departments_company")
+  @@index([divisionId], map: "idx_departments_division")
+  @@map("departments")
+}
+
+model User {
+  id     String  @id
+  /// admin ไม่สังกัดบริษัทใด — เป็น null
+  companyId String? @map("company_id")
+  empId  String  @map("emp_id")
+  name   String
+  email  String  @unique
+  /// scrypt "salt:hash" (hex) — null = ยังไม่ตั้งรหัสผ่าน เข้าระบบไม่ได้
+  passwordHash String? @map("password_hash")
+  phone        String  @default("-")
+  role         UserRole
+  divisionId   String?  @map("division_id")
+  departmentId String?  @map("department_id")
+  position     String   @default("")
+  managerId    String?  @map("manager_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company    Company?    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  division   Division?   @relation("DivisionMembers", fields: [divisionId], references: [id], onDelete: SetNull)
+  department Department? @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+  manager    User?       @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+
+  reports          User[]         @relation("UserManager")
+  headOfDivisions  Division[]     @relation("DivisionHead")
+  headOfDepartments Department[]  @relation("DepartmentHead")
+  kpisCreated      Kpi[]
+  assessments      Assessment[]   @relation("AssessmentOwner")
+  assessmentsToEvaluate Assessment[] @relation("AssessmentEvaluator")
+  announcements    Announcement[]
+
+  @@index([companyId], map: "idx_users_company")
+  @@index([divisionId], map: "idx_users_division")
+  @@index([departmentId], map: "idx_users_department")
+  @@index([managerId], map: "idx_users_manager")
+  @@map("users")
+}
+
+model Cycle {
+  id        String   @id
+  companyId String   @map("company_id")
+  name      String
+  year      Int
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assessments Assessment[]
+
+  @@index([companyId], map: "idx_cycles_company")
+  @@map("cycles")
+}
+
+model Kpi {
+  id           String   @id
+  companyId    String   @map("company_id")
+  level        KpiLevel
+  title        String
+  divisionId   String?  @map("division_id")
+  departmentId String?  @map("department_id")
+  parentKpiId  String?  @map("parent_kpi_id")
+  createdById  String?  @map("created_by_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  division   Division?   @relation(fields: [divisionId], references: [id], onDelete: Cascade)
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  parent     Kpi?        @relation("KpiParent", fields: [parentKpiId], references: [id], onDelete: SetNull)
+  createdBy  User?       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  children    Kpi[]            @relation("KpiParent")
+  linkedItems AssessmentItem[]
+
+  @@index([companyId, level], map: "idx_kpis_company_level")
+  @@index([divisionId], map: "idx_kpis_division")
+  @@index([departmentId], map: "idx_kpis_department")
+  @@index([parentKpiId], map: "idx_kpis_parent")
+  @@map("kpis")
+}
+
+model Assessment {
+  id          String            @id
+  companyId   String            @map("company_id")
+  cycleId     String            @map("cycle_id")
+  userId      String            @map("user_id")
+  evaluatorId String?           @map("evaluator_id")
+  remark      String?
+  status      AssessmentStatus  @default(draft)
+  selfTotal   Decimal?          @map("self_total")
+  finalScore  Decimal?          @map("final_score")
+  submittedAt DateTime?         @map("submitted_at") @db.Timestamptz(6)
+  evaluatedAt DateTime?         @map("evaluated_at") @db.Timestamptz(6)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cycle     Cycle            @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  user      User             @relation("AssessmentOwner", fields: [userId], references: [id], onDelete: Cascade)
+  evaluator User?            @relation("AssessmentEvaluator", fields: [evaluatorId], references: [id], onDelete: SetNull)
+  items     AssessmentItem[]
+
+  @@unique([userId, cycleId])
+  @@index([cycleId], map: "idx_assessments_cycle")
+  @@index([userId], map: "idx_assessments_user")
+  @@index([evaluatorId], map: "idx_assessments_evaluator")
+  @@map("assessments")
+}
+
+model AssessmentItem {
+  assessmentId String  @map("assessment_id")
+  /// id ที่ generate ฝั่ง client เช่น "as-xxx-i1"
+  itemId       String  @map("item_id")
+  position     Int     @default(0)
+  title        String  @default("")
+  weight       Decimal @default(0)
+  target       String  @default("")
+  linkedKpiId  String? @map("linked_kpi_id")
+  selfScore    Decimal @default(0) @map("self_score")
+  selfComment  String  @default("") @map("self_comment")
+  evalScore    Decimal? @map("eval_score")
+  evalComment  String  @default("") @map("eval_comment")
+
+  assessment Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  linkedKpi  Kpi?       @relation(fields: [linkedKpiId], references: [id], onDelete: SetNull)
+
+  @@id([assessmentId, itemId])
+  @@index([assessmentId], map: "idx_assessment_items_assessment")
+  @@map("assessment_items")
+}
+
+model Announcement {
+  id          String   @id
+  companyId   String   @map("company_id")
+  message     String
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt(sort: Desc)], map: "idx_announcements_company_created")
+  @@map("announcements")
+}

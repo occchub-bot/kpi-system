@@ -1,45 +1,168 @@
 # KPI System
 
-ระบบประเมิน KPI องค์กรหลาย role — UI มินิมอล ขาวดำ (Next.js 16 + App Router + Tailwind v4)
+ระบบประเมิน KPI องค์กรหลาย role — UI มินิมอล ขาวดำ
+(Next.js 16 + App Router + Tailwind v4 + Prisma + PostgreSQL, deploy บนเซิร์ฟเวอร์ตัวเอง)
 
-## รัน
+## Deploy บนเซิร์ฟเวอร์
+
+สิ่งที่ต้องมีบนเซิร์ฟเวอร์: **Node** ตามที่ `engines` กำหนด (`^20.19 || ^22.12 || >=24`)
+และ **PostgreSQL 14+** (โปรเจกต์นี้ทดสอบบน 17)
+
+### 1. เตรียมฐานข้อมูล
+
+```sql
+-- psql -U postgres
+CREATE USER kpi WITH PASSWORD 'ใส่รหัสผ่านที่ตั้งเอง';
+CREATE DATABASE kpi OWNER kpi;
+```
+
+Prisma ต้องเป็นเจ้าของ schema เพื่อสร้าง/แก้ตารางได้ — ให้ `kpi` เป็น OWNER ของ database
+ไม่ต้องสร้างตารางเอง `npm run db:migrate` จัดการให้ทั้งหมด
+
+### 2. ติดตั้งและรัน
+
+```bash
+git clone <repo> kpi-system && cd kpi-system
+cp .env.example .env
+nano .env                  # ใส่ DATABASE_URL ให้ตรงกับที่สร้างไว้ข้างบน
+
+npm ci                     # postinstall เรียก prisma generate ให้เอง
+npm run db:migrate         # สร้างตารางทั้งหมด
+npm run db:seed            # ข้อมูลตัวอย่าง 2 บริษัท (ครั้งแรกเท่านั้น ข้ามได้ถ้าจะเริ่มจากศูนย์)
+npm run build
+npm start                  # ฟังที่พอร์ต 3000 (เปลี่ยนได้ด้วย PORT ใน .env)
+```
+
+### 3. ให้รันค้างเป็น service (systemd)
+
+`/etc/systemd/system/kpi-system.service`
+
+```ini
+[Unit]
+Description=KPI System
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=kpi
+WorkingDirectory=/srv/kpi-system
+EnvironmentFile=/srv/kpi-system/.env
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now kpi-system
+sudo journalctl -u kpi-system -f
+```
+
+### 4. เปิดให้เข้าจากภายนอกด้วย HTTPS
+
+อย่า publish พอร์ต 3000 ออกเน็ตตรง ๆ ให้วาง reverse proxy คั่นไว้ ตัวอย่าง nginx:
+
+```nginx
+server {
+    server_name kpi.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+แล้วขอใบรับรองด้วย `sudo certbot --nginx -d kpi.example.com`
+
+### 5. อัปเดตเวอร์ชันใหม่
+
+```bash
+cd /srv/kpi-system
+git pull
+npm ci
+npm run db:migrate         # apply migration ใหม่ (ถ้ามี) — ต้องรันก่อน build เสมอ
+npm run build
+sudo systemctl restart kpi-system
+```
+
+### 6. สำรอง / กู้คืนข้อมูล
+
+ต้องมี `pg_dump` ใน PATH (แพ็กเกจ `postgresql-client`)
+
+```bash
+npm run db:backup          # ได้ไฟล์ backups/kpi-<เวลา>.sql.gz
+gunzip -c backups/kpi-2569-01-01T00-00-00.sql.gz | psql "$DATABASE_URL"
+```
+
+ตั้ง cron รายวัน: `0 3 * * * cd /srv/kpi-system && npm run db:backup`
+
+## รันบนเครื่องตัวเอง (dev)
+
+ต้องมี PostgreSQL บนเครื่องเช่นกัน (ติดตั้งเอง หรือชี้ `DATABASE_URL` ไปที่ DB สำหรับ dev ที่ไหนก็ได้)
 
 ```bash
 npm install
-cp .env.local.example .env.local   # แล้วใส่ SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (ดูหัวข้อด้านล่าง)
-npm run dev      # เปิด http://localhost:3000  (โปรเจกต์นี้ทดสอบบนพอร์ต 3002: PORT=3002 npm run dev)
+cp .env.example .env       # ใส่ DATABASE_URL
+npm run db:migrate
+npm run db:seed
+npm run dev                # http://localhost:3000
+                           # โปรเจกต์นี้ทดสอบบนพอร์ต 3002: PORT=3002 npm run dev
 ```
 
-## การเก็บข้อมูล (Supabase / Postgres)
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `npm run db:migrate` | apply migration ที่มีอยู่ (ใช้ตอน deploy) |
+| `npm run db:migrate:dev` | สร้าง migration ใหม่หลังแก้ `prisma/schema.prisma` |
+| `npm run db:seed` | ใส่ข้อมูลตัวอย่าง + ตั้งรหัสผ่านให้ทุกบัญชี (รันซ้ำได้) |
+| `npm run db:studio` | เปิด Prisma Studio ดู/แก้ข้อมูลผ่าน UI |
+| `npm run db:backup` | สำรองฐานข้อมูลเป็น `.sql.gz` |
 
-ข้อมูลทั้งหมดเก็บใน Supabase (Postgres) ผ่านตารางแบบ relational (companies, divisions,
-departments, users, cycles, kpis, assessments, assessment_items, announcements)
+## ทดสอบ
 
-**ตั้งค่าครั้งแรก:**
-1. สร้างโปรเจกต์ใหม่ที่ [supabase.com](https://supabase.com)
-2. ไปที่ **SQL Editor** ในโปรเจกต์ แล้ววางไฟล์ `supabase/setup.sql` ทั้งไฟล์ กด Run
-   ครั้งเดียว — สคริปต์นี้สร้างตาราง/index/RLS ทั้งหมด และ seed ข้อมูลตัวอย่าง 2 บริษัท
-   ให้ครบ (ถ้าต้องการแค่ schema เปล่าไม่มี seed ให้รัน `supabase/schema.sql` แทน)
-3. ไปที่ **Project Settings > API** คัดลอก **Project URL** และ **service_role key**
-4. คัดลอก `.env.local.example` เป็น `.env.local` แล้วใส่ค่าทั้งสอง
-5. `npm run dev` — แอปจะอ่าน/เขียนข้อมูลผ่าน Supabase ทันที
+```bash
+npm run test:agent                                # เช็คสิทธิ์การเข้าถึงทั้ง 7 role (read-only)
+npm run test:agent -- --full                      # + รัน flow ประเมินจริงครบวงจร
+npm run test:agent -- --full http://127.0.0.1:3000   # ยิงใส่เซิร์ฟเวอร์ production ก็ได้
+```
 
-รันสคริปต์ `supabase/setup.sql` ซ้ำได้อย่างปลอดภัย (ใช้ `if not exists`/`on conflict do nothing`)
-ถ้าต้องการรีเซ็ตข้อมูลกลับเป็นค่าเริ่มต้น ให้ลบตารางทั้งหมดแล้วรัน `setup.sql` ใหม่
+ต้องมีเซิร์ฟเวอร์รันอยู่ก่อน (ค่าเริ่มต้นยิงไปที่พอร์ต 3002) และโหมด `--full` ต้องมี
+`DATABASE_URL` เพื่ออ่าน/เก็บกวาดแถวที่ UI ไม่เปิดให้ทำ
 
-## เข้าสู่ระบบ (passwordless)
+สคริปต์ยิง multipart POST เข้า server action จริงแบบ browser ที่ไม่มี JS จึงเป็นการทดสอบ
+code path จริง ไม่ใช่ mock — โหมด `--full` สร้างพนักงานชั่วคราวขึ้นมาแล้วลบทิ้งเมื่อจบ
 
-พิมพ์อีเมลในหน้า `/login` หรือคลิกบัญชีตัวอย่าง — บัญชีในข้อมูลตัวอย่าง:
+## การเก็บข้อมูล
 
-| บทบาท | ชื่อ | อีเมล |
-|---|---|---|
-| ผู้ดูแลระบบ (admin) | ผู้ดูแลระบบ | `admin@kpi.system` |
-| HR | คุณพิมพ์ | `hr@example.com` |
-| CEO | คุณวิชัย | `ceo@example.com` |
-| ผู้บริหารฝ่าย | คุณสมชาย | `somchai@example.com` |
-| ผจก.แผนก HR | คุณสุดา | `suda@example.com` |
-| ผจก.แผนกการเงิน | คุณมานพ | `manop@example.com` |
-| พนักงาน | คุณอนันต์ | `anan@example.com` |
+PostgreSQL ผ่าน Prisma — 9 ตาราง (companies, divisions, departments, users, cycles, kpis,
+assessments, assessment_items, announcements)
+
+- `prisma/schema.prisma` — schema ต้นทาง (camelCase + `@map` ลงคอลัมน์ snake_case)
+- `prisma/migrations/` — migration history ที่ `db:migrate` ใช้
+- `prisma/seed.sql` — ข้อมูลตัวอย่าง 2 บริษัท
+- `prisma/seed.mjs` — รัน seed.sql แล้วตั้ง `password_hash` ให้ทุกบัญชี (seed.sql ไม่มีรหัสผ่าน)
+
+## เข้าสู่ระบบ
+
+ทุกบัญชีในข้อมูลตัวอย่างใช้รหัสผ่านเดียวกันตามที่ `npm run db:seed` พิมพ์ออกมา
+(ค่าเริ่มต้น `kpi-demo-2569` เปลี่ยนได้ด้วย env `SEED_PASSWORD`)
+**เปลี่ยนรหัสผ่านทันทีหลังเข้าระบบครั้งแรก** ที่เมนู "บัญชีของฉัน"
+
+| บทบาท | อีเมล |
+|---|---|
+| ผู้ดูแลระบบ (admin) | `admin@kpi.system` |
+| HR | `hr@siamfoods.co.th` |
+| CEO | `ceo@siamfoods.co.th` |
+| ผู้บริหารฝ่าย | `staff001@siamfoods.co.th` |
+| ผจก.แผนก | `staff002@siamfoods.co.th` |
+| พนักงาน | `staff003@siamfoods.co.th` |
 
 ## โครงสร้าง role & เมนู
 
@@ -61,16 +184,13 @@ departments, users, cycles, kpis, assessments, assessment_items, announcements)
 ## สถาปัตยกรรมโค้ด
 
 - `lib/types.ts` — โมเดลข้อมูล
-- `lib/supabase.ts` — Supabase client (service_role, server เท่านั้น)
-- `lib/mappers.ts` — แปลง row Supabase (snake_case) ↔ entity ของแอป (camelCase)
-- `lib/store.ts` — `readDB()` โหลดข้อมูลทั้งก้อนจาก Supabase มาประกอบเป็นรูปทรง `DB` เดียว
+- `lib/prisma.ts` — Prisma client (singleton + driver adapter, server เท่านั้น)
+- `lib/mappers.ts` — แปลง row ของ Prisma (Date/Decimal) → entity ของแอป (string/number)
+- `lib/store.ts` — `readDB()` โหลดข้อมูลทั้งก้อนใน `$transaction` เดียวมาประกอบเป็นรูปทรง `DB`
   ต่อ 1 request (หน้าเรียกครั้งเดียวแล้วส่ง `db` ต่อให้ `lib/queries.ts`)
-- `lib/auth.ts` — session ผ่าน cookie + query user จาก Supabase
+- `lib/auth.ts` — session ผ่าน cookie + query user จาก Postgres
 - `lib/queries.ts` — selectors + การคำนวณคะแนน/AVG/bell curve (pure function รับ `db: DB` เป็นอาร์กิวเมนต์แรก)
-- `lib/actions.ts` — server actions (insert/update/delete ตรงไปที่ตาราง Supabase)
+- `lib/actions.ts` — server actions ทั้งหมด
 - `lib/nav.ts` — เมนูตาม role
-- `supabase/schema.sql` — ตาราง/enum/index/RLS
-- `supabase/seed.sql` — ข้อมูลตัวอย่าง (generate มาจาก data ชุดเดิม)
-- `supabase/setup.sql` — schema.sql + seed.sql รวมไฟล์เดียว สำหรับรันครั้งเดียวใน SQL Editor
 - `app/(app)/...` — หน้าใช้งานหลัง login
 - `components/` — UI ขาวดำ + ฟอร์ม client (ประเมินตนเอง/ประเมินลูกน้อง)

@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { supabase } from "./supabase";
-import { newId, nowISO } from "./store";
+import { prisma } from "./prisma";
+import { newId } from "./store";
 import { itemsToRows, toAssessmentItem } from "./mappers";
 import { getCurrentUser, setSession, clearSession, verifyLogin } from "./auth";
 import { setFlash, setPasswordReveal } from "./flash";
@@ -24,10 +24,21 @@ function num(fd: FormData, k: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** throw ถ้า Supabase คืน error — โยนให้ error.tsx ของ Next.js จัดการ (กรณีนี้ไม่ควรเกิดถ้า schema ถูกต้อง) */
-function check<T extends { error: { message: string } | null }>(res: T): T {
-  if (res.error) throw new Error(`Supabase error: ${res.error.message}`);
-  return res;
+/**
+ * update/delete ที่กันข้ามบริษัทด้วยเงื่อนไขหลายคอลัมน์ ต้องใช้ updateMany/deleteMany
+ * (Prisma update/delete รับได้เฉพาะ unique key) แต่สองตัวนั้นไม่ throw เมื่อไม่เจอแถว —
+ * ถ้าไม่เช็ก count กลับมา เกราะกัน company_id จะกลายเป็น no-op เงียบ ๆ แล้วแอปจะแจ้ง "สำเร็จ"
+ * ทั้งที่ไม่ได้เขียนอะไรเลย ทุกจุดที่เรียก updateMany/deleteMany แบบมีเงื่อนไขสิทธิ์ต้องผ่านตัวนี้
+ */
+async function guardAffected(
+  result: { count: number },
+  message = "ไม่พบข้อมูล หรือไม่มีสิทธิ์เข้าถึงข้อมูลนี้"
+): Promise<boolean> {
+  if (result.count === 0) {
+    await setFlash(message, "error");
+    return false;
+  }
+  return true;
 }
 
 /* ---------------- auth ---------------- */
@@ -69,13 +80,16 @@ export async function changeOwnPasswordAction(formData: FormData) {
     return;
   }
 
-  const { data } = await supabase.from("users").select("password_hash").eq("id", me.id).maybeSingle();
-  if (!verifyPassword(current, data?.password_hash ?? null)) {
+  const row = await prisma.user.findUnique({
+    where: { id: me.id },
+    select: { passwordHash: true },
+  });
+  if (!verifyPassword(current, row?.passwordHash ?? null)) {
     await setFlash("รหัสผ่านปัจจุบันไม่ถูกต้อง", "error");
     return;
   }
 
-  check(await supabase.from("users").update({ password_hash: hashPassword(next) }).eq("id", me.id));
+  await prisma.user.update({ where: { id: me.id }, data: { passwordHash: hashPassword(next) } });
   await setFlash("เปลี่ยนรหัสผ่านสำเร็จ");
   revalidatePath("/account");
 }
@@ -93,25 +107,27 @@ export async function addCompanyAction(formData: FormData) {
 
   const companyId = newId("c");
   const password = generatePassword();
-  check(await supabase.from("companies").insert({ id: companyId, name, created_at: nowISO() }));
-  check(
-    await supabase.from("users").insert({
-      id: newId("u"),
-      company_id: companyId,
-      emp_id: "HR-000",
-      name: "HR",
-      email: hrEmail,
-      password_hash: hashPassword(password),
-      phone: "-",
-      role: "hr",
-      division_id: null,
-      department_id: null,
-      position: "เจ้าหน้าที่ฝ่ายบุคคล (HR)",
-      manager_id: null,
-      is_active: true,
-      created_at: nowISO(),
-    })
-  );
+  // บริษัทที่ไม่มี HR เข้าไม่ถึงเลย — สร้างสองแถวนี้ให้สำเร็จพร้อมกันหรือไม่สำเร็จทั้งคู่
+  await prisma.$transaction([
+    prisma.company.create({ data: { id: companyId, name } }),
+    prisma.user.create({
+      data: {
+        id: newId("u"),
+        companyId,
+        empId: "HR-000",
+        name: "HR",
+        email: hrEmail,
+        passwordHash: hashPassword(password),
+        phone: "-",
+        role: "hr",
+        divisionId: null,
+        departmentId: null,
+        position: "เจ้าหน้าที่ฝ่ายบุคคล (HR)",
+        managerId: null,
+        isActive: true,
+      },
+    }),
+  ]);
   await setFlash(`เพิ่มบริษัท "${name}" แล้ว`);
   await setPasswordReveal(`บริษัท "${name}" — HR (${hrEmail})`, password);
   revalidatePath("/admin");
@@ -126,28 +142,25 @@ export async function addHRAction(formData: FormData) {
     await setFlash("กรอกอีเมล HR ให้ครบ", "error");
     return;
   }
-  const { count } = check(
-    await supabase.from("users").select("id", { count: "exact", head: true }).eq("company_id", companyId)
-  );
+  const count = await prisma.user.count({ where: { companyId } });
   const password = generatePassword();
-  check(
-    await supabase.from("users").insert({
+  await prisma.user.create({
+    data: {
       id: newId("u"),
-      company_id: companyId,
-      emp_id: "HR-" + String(count ?? 0),
+      companyId,
+      empId: "HR-" + String(count),
       name: "HR",
       email,
-      password_hash: hashPassword(password),
+      passwordHash: hashPassword(password),
       phone: "-",
       role: "hr",
-      division_id: null,
-      department_id: null,
+      divisionId: null,
+      departmentId: null,
       position: "เจ้าหน้าที่ฝ่ายบุคคล (HR)",
-      manager_id: null,
-      is_active: true,
-      created_at: nowISO(),
-    })
-  );
+      managerId: null,
+      isActive: true,
+    },
+  });
   await setFlash(`เพิ่มอีเมล HR (${email}) แล้ว`);
   await setPasswordReveal(`HR (${email})`, password);
   revalidatePath(`/admin/company/${companyId}`);
@@ -161,19 +174,14 @@ export async function deleteHRAction(formData: FormData) {
   const companyId = s(formData, "company_id");
   if (!id || !companyId) return;
 
-  const { count } = check(
-    await supabase
-      .from("users")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("role", "hr")
-  );
-  if ((count ?? 0) <= 1) {
+  const count = await prisma.user.count({ where: { companyId, role: "hr" } });
+  if (count <= 1) {
     await setFlash("ลบไม่ได้ ต้องมี HR อย่างน้อย 1 คนต่อบริษัท", "error");
     return;
   }
 
-  check(await supabase.from("users").delete().eq("id", id).eq("company_id", companyId).eq("role", "hr"));
+  const deleted = await prisma.user.deleteMany({ where: { id, companyId, role: "hr" } });
+  if (!(await guardAffected(deleted, "ไม่พบอีเมล HR นี้ในบริษัท"))) return;
   await setFlash("ลบอีเมล HR แล้ว");
   revalidatePath(`/admin/company/${companyId}`);
 }
@@ -187,14 +195,9 @@ export async function addDivisionAction(formData: FormData) {
     await setFlash("กรอกชื่อฝ่าย", "error");
     return;
   }
-  check(
-    await supabase.from("divisions").insert({
-      id: newId("d"),
-      company_id: me.companyId,
-      name,
-      head_user_id: null,
-    })
-  );
+  await prisma.division.create({
+    data: { id: newId("d"), companyId: me.companyId, name, headUserId: null },
+  });
   await setFlash(`เพิ่มฝ่าย "${name}" แล้ว`);
   revalidatePath("/manage/divisions");
 }
@@ -208,15 +211,9 @@ export async function addDepartmentAction(formData: FormData) {
     await setFlash("เลือกฝ่ายและกรอกชื่อแผนก", "error");
     return;
   }
-  check(
-    await supabase.from("departments").insert({
-      id: newId("dep"),
-      company_id: me.companyId,
-      division_id: divisionId,
-      name,
-      head_user_id: null,
-    })
-  );
+  await prisma.department.create({
+    data: { id: newId("dep"), companyId: me.companyId, divisionId, name, headUserId: null },
+  });
   await setFlash(`เพิ่มแผนก "${name}" แล้ว`);
   revalidatePath("/manage/departments");
 }
@@ -230,9 +227,11 @@ export async function updateDivisionAction(formData: FormData) {
     await setFlash("กรอกชื่อฝ่าย", "error");
     return;
   }
-  check(
-    await supabase.from("divisions").update({ name }).eq("id", id).eq("company_id", me.companyId)
-  );
+  const updated = await prisma.division.updateMany({
+    where: { id, companyId: me.companyId },
+    data: { name },
+  });
+  if (!(await guardAffected(updated, "ไม่พบฝ่ายนี้"))) return;
   await setFlash("แก้ไขชื่อฝ่ายแล้ว");
   revalidatePath("/manage/divisions");
 }
@@ -243,28 +242,22 @@ export async function deleteDivisionAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const { data: div } = await supabase
-    .from("divisions")
-    .select("id")
-    .eq("id", id)
-    .eq("company_id", me.companyId)
-    .maybeSingle();
+  const div = await prisma.division.findFirst({
+    where: { id, companyId: me.companyId },
+    select: { id: true },
+  });
 
   let ok = false;
   let reason = "ไม่พบฝ่าย";
   if (div) {
-    const { count: depCount } = check(
-      await supabase.from("departments").select("id", { count: "exact", head: true }).eq("division_id", id)
-    );
-    const { count: userCount } = check(
-      await supabase.from("users").select("id", { count: "exact", head: true }).eq("division_id", id)
-    );
+    const depCount = await prisma.department.count({ where: { divisionId: id } });
+    const userCount = await prisma.user.count({ where: { divisionId: id } });
     if (depCount) {
       reason = "ลบไม่ได้ ยังมีแผนกอยู่ในฝ่ายนี้";
     } else if (userCount) {
       reason = "ลบไม่ได้ ยังมีพนักงานอยู่ในฝ่ายนี้";
     } else {
-      check(await supabase.from("divisions").delete().eq("id", id));
+      await prisma.division.delete({ where: { id } });
       ok = true;
     }
   }
@@ -283,13 +276,11 @@ export async function updateDepartmentAction(formData: FormData) {
     await setFlash("กรอกชื่อแผนกและเลือกฝ่าย", "error");
     return;
   }
-  check(
-    await supabase
-      .from("departments")
-      .update({ name, division_id: divisionId })
-      .eq("id", id)
-      .eq("company_id", me.companyId)
-  );
+  const updated = await prisma.department.updateMany({
+    where: { id, companyId: me.companyId },
+    data: { name, divisionId },
+  });
+  if (!(await guardAffected(updated, "ไม่พบแผนกนี้"))) return;
   await setFlash("แก้ไขแผนกแล้ว");
   revalidatePath("/manage/departments");
 }
@@ -300,23 +291,19 @@ export async function deleteDepartmentAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const { data: dep } = await supabase
-    .from("departments")
-    .select("id")
-    .eq("id", id)
-    .eq("company_id", me.companyId)
-    .maybeSingle();
+  const dep = await prisma.department.findFirst({
+    where: { id, companyId: me.companyId },
+    select: { id: true },
+  });
 
   let ok = false;
   let reason = "ไม่พบแผนก";
   if (dep) {
-    const { count: userCount } = check(
-      await supabase.from("users").select("id", { count: "exact", head: true }).eq("department_id", id)
-    );
+    const userCount = await prisma.user.count({ where: { departmentId: id } });
     if (userCount) {
       reason = "ลบไม่ได้ ยังมีพนักงานอยู่ในแผนกนี้";
     } else {
-      check(await supabase.from("departments").delete().eq("id", id));
+      await prisma.department.delete({ where: { id } });
       ok = true;
     }
   }
@@ -351,45 +338,37 @@ export async function addEmployeeAction(formData: FormData) {
 
   const id = newId("u");
   const password = generatePassword();
-  check(
-    await supabase.from("users").insert({
+  await prisma.user.create({
+    data: {
       id,
-      company_id: me.companyId,
-      emp_id: empId || id.toUpperCase(),
+      companyId: me.companyId,
+      empId: empId || id.toUpperCase(),
       name,
       email,
-      password_hash: hashPassword(password),
+      passwordHash: hashPassword(password),
       phone: phone || "-",
       role,
-      division_id: divisionId,
-      department_id: departmentId,
+      divisionId,
+      departmentId,
       position: position || "พนักงาน",
-      manager_id: managerId,
-      is_active: true,
-      created_at: nowISO(),
-    })
-  );
+      managerId,
+      isActive: true,
+    },
+  });
 
   // ตั้งเป็นหัวหน้าหน่วยงานอัตโนมัติตาม role (เฉพาะกรณีหน่วยงานยังไม่มีหัวหน้า)
+  // เงื่อนไข headUserId: null อยู่ใน where เลย จึงไม่ต้องอ่านมาเช็กก่อนแล้วค่อยเขียน
   if (role === "dept_manager" && departmentId) {
-    const { data: dep } = await supabase
-      .from("departments")
-      .select("head_user_id")
-      .eq("id", departmentId)
-      .maybeSingle();
-    if (dep && !dep.head_user_id) {
-      await supabase.from("departments").update({ head_user_id: id }).eq("id", departmentId);
-    }
+    await prisma.department.updateMany({
+      where: { id: departmentId, headUserId: null },
+      data: { headUserId: id },
+    });
   }
   if (role === "division_head" && divisionId) {
-    const { data: div } = await supabase
-      .from("divisions")
-      .select("head_user_id")
-      .eq("id", divisionId)
-      .maybeSingle();
-    if (div && !div.head_user_id) {
-      await supabase.from("divisions").update({ head_user_id: id }).eq("id", divisionId);
-    }
+    await prisma.division.updateMany({
+      where: { id: divisionId, headUserId: null },
+      data: { headUserId: id },
+    });
   }
 
   await setFlash(`เพิ่มพนักงาน "${name}" แล้ว`);
@@ -423,23 +402,21 @@ export async function updateEmployeeAction(formData: FormData) {
     return;
   }
 
-  check(
-    await supabase
-      .from("users")
-      .update({
-        name,
-        email,
-        phone: phone || "-",
-        ...(empId ? { emp_id: empId } : {}),
-        role,
-        division_id: divisionId,
-        department_id: departmentId,
-        position: position || "พนักงาน",
-        manager_id: managerId,
-      })
-      .eq("id", id)
-      .eq("company_id", me.companyId)
-  );
+  const updated = await prisma.user.updateMany({
+    where: { id, companyId: me.companyId },
+    data: {
+      name,
+      email,
+      phone: phone || "-",
+      ...(empId ? { empId } : {}),
+      role,
+      divisionId,
+      departmentId,
+      position: position || "พนักงาน",
+      managerId,
+    },
+  });
+  if (!(await guardAffected(updated, "ไม่พบพนักงานคนนี้"))) return;
   await setFlash(`แก้ไขข้อมูล "${name}" แล้ว`);
   revalidatePath("/manage/employees");
 }
@@ -454,34 +431,29 @@ export async function deleteEmployeeAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const { data: emp } = await supabase
-    .from("users")
-    .select("id, name")
-    .eq("id", id)
-    .eq("company_id", me.companyId)
-    .maybeSingle();
+  const emp = await prisma.user.findFirst({
+    where: { id, companyId: me.companyId },
+    select: { id: true, name: true },
+  });
   if (!emp) {
     await setFlash("ไม่พบพนักงาน", "error");
     return;
   }
 
-  const { count: assessmentCount } = check(
-    await supabase.from("assessments").select("id", { count: "exact", head: true }).eq("user_id", id)
-  );
+  const assessmentCount = await prisma.assessment.count({ where: { userId: id } });
   if (assessmentCount) {
     await setFlash("ลบไม่ได้ พนักงานคนนี้มีประวัติการประเมินแล้ว — ใช้ปิดใช้งานแทน", "error");
     return;
   }
 
-  const { count: reportsCount } = check(
-    await supabase.from("users").select("id", { count: "exact", head: true }).eq("manager_id", id)
-  );
+  const reportsCount = await prisma.user.count({ where: { managerId: id } });
   if (reportsCount) {
     await setFlash("ลบไม่ได้ ยังมีพนักงานที่รายงานตรงต่อคนนี้อยู่ — เปลี่ยนผู้บังคับบัญชาของพวกเขาก่อน", "error");
     return;
   }
 
-  check(await supabase.from("users").delete().eq("id", id).eq("company_id", me.companyId));
+  const deleted = await prisma.user.deleteMany({ where: { id, companyId: me.companyId } });
+  if (!(await guardAffected(deleted, "ไม่พบพนักงาน"))) return;
   await setFlash(`ลบพนักงาน "${emp.name}" แล้ว`);
   revalidatePath("/manage/employees");
 }
@@ -494,13 +466,11 @@ export async function setUserActiveAction(formData: FormData) {
   const active = s(formData, "active") === "true";
   if (!id) return;
 
-  check(
-    await supabase
-      .from("users")
-      .update({ is_active: active })
-      .eq("id", id)
-      .eq("company_id", me.companyId)
-  );
+  const updated = await prisma.user.updateMany({
+    where: { id, companyId: me.companyId },
+    data: { isActive: active },
+  });
+  if (!(await guardAffected(updated, "ไม่พบพนักงานคนนี้"))) return;
   await setFlash(active ? "เปิดใช้งานพนักงานแล้ว" : "ปิดใช้งานพนักงานแล้ว");
   revalidatePath("/manage/employees");
 }
@@ -517,21 +487,20 @@ export async function resetPasswordAction(
   if (!id) return { error: "ไม่พบผู้ใช้" };
   if (me.role !== "hr" && me.role !== "admin") redirect("/");
 
-  let q = supabase.from("users").select("id,email,company_id").eq("id", id);
-  if (me.role === "hr") {
-    if (!me.companyId) return { error: "ไม่พบผู้ใช้" };
-    q = q.eq("company_id", me.companyId);
-  }
-  const { data: target } = await q.maybeSingle();
+  if (me.role === "hr" && !me.companyId) return { error: "ไม่พบผู้ใช้" };
+  const target = await prisma.user.findFirst({
+    where: { id, ...(me.role === "hr" ? { companyId: me.companyId } : {}) },
+    select: { id: true, email: true, companyId: true },
+  });
   if (!target) {
     return { error: "ไม่พบผู้ใช้" };
   }
 
   const password = generatePassword();
-  check(await supabase.from("users").update({ password_hash: hashPassword(password) }).eq("id", id));
+  await prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(password) } });
   revalidatePath("/manage/employees");
   revalidatePath("/admin");
-  if (target.company_id) revalidatePath(`/admin/company/${target.company_id}`);
+  if (target.companyId) revalidatePath(`/admin/company/${target.companyId}`);
   return { email: target.email, password };
 }
 
@@ -545,21 +514,17 @@ export async function addCycleAction(formData: FormData) {
     await setFlash("กรอกชื่อรอบประเมิน", "error");
     return;
   }
-  if (active) {
-    check(
-      await supabase.from("cycles").update({ active: false }).eq("company_id", me.companyId)
-    );
-  }
-  check(
-    await supabase.from("cycles").insert({
-      id: newId("cy"),
-      company_id: me.companyId,
-      name,
-      year,
-      active,
-      created_at: nowISO(),
-    })
-  );
+  const companyId = me.companyId;
+  await prisma.$transaction(async (tx) => {
+    // ปิดรอบเดิมก่อน — บริษัทหนึ่งมีรอบ active ได้ทีละรอบเท่านั้น
+    // (0 แถวเป็นเรื่องปกติ ตอนสร้างรอบแรกของบริษัท จึงไม่ต้องเช็ก count)
+    if (active) {
+      await tx.cycle.updateMany({ where: { companyId }, data: { active: false } });
+    }
+    await tx.cycle.create({
+      data: { id: newId("cy"), companyId, name, year, active },
+    });
+  });
   await setFlash(`สร้างรอบประเมิน "${name}" แล้ว`);
   revalidatePath("/manage/cycles");
 }
@@ -573,19 +538,18 @@ export async function addOrgKpiAction(formData: FormData) {
     await setFlash("กรอกหัวข้อ KPI", "error");
     return;
   }
-  check(
-    await supabase.from("kpis").insert({
+  await prisma.kpi.create({
+    data: {
       id: newId("k"),
-      company_id: me.companyId,
+      companyId: me.companyId,
       level: "org",
       title,
-      division_id: null,
-      department_id: null,
-      parent_kpi_id: null,
-      created_by_id: me.id,
-      created_at: nowISO(),
-    })
-  );
+      divisionId: null,
+      departmentId: null,
+      parentKpiId: null,
+      createdById: me.id,
+    },
+  });
   await setFlash("เพิ่ม KPI องค์กรแล้ว");
   revalidatePath("/manage/org-kpi");
 }
@@ -602,33 +566,31 @@ export async function addUnitKpiAction(formData: FormData) {
   }
 
   if (me.role === "division_head" && me.divisionId) {
-    check(
-      await supabase.from("kpis").insert({
+    await prisma.kpi.create({
+      data: {
         id: newId("k"),
-        company_id: me.companyId,
+        companyId: me.companyId,
         level: "division",
         title,
-        division_id: me.divisionId,
-        department_id: null,
-        parent_kpi_id: parentKpiId,
-        created_by_id: me.id,
-        created_at: nowISO(),
-      })
-    );
+        divisionId: me.divisionId,
+        departmentId: null,
+        parentKpiId,
+        createdById: me.id,
+      },
+    });
   } else if (me.role === "dept_manager" && me.departmentId) {
-    check(
-      await supabase.from("kpis").insert({
+    await prisma.kpi.create({
+      data: {
         id: newId("k"),
-        company_id: me.companyId,
+        companyId: me.companyId,
         level: "department",
         title,
-        division_id: me.divisionId,
-        department_id: me.departmentId,
-        parent_kpi_id: parentKpiId,
-        created_by_id: me.id,
-        created_at: nowISO(),
-      })
-    );
+        divisionId: me.divisionId,
+        departmentId: me.departmentId,
+        parentKpiId,
+        createdById: me.id,
+      },
+    });
   }
   await setFlash("เพิ่ม KPI แล้ว");
   revalidatePath("/manage/unit-kpi");
@@ -641,12 +603,10 @@ export async function deleteKpiAction(formData: FormData) {
   const id = s(formData, "id");
   if (!id) return;
 
-  const { data: kpi } = await supabase
-    .from("kpis")
-    .select("id, level, division_id, department_id")
-    .eq("id", id)
-    .eq("company_id", me.companyId)
-    .maybeSingle();
+  const kpi = await prisma.kpi.findFirst({
+    where: { id, companyId: me.companyId },
+    select: { id: true, level: true, divisionId: true, departmentId: true },
+  });
   if (!kpi) {
     await setFlash("ไม่พบ KPI", "error");
     return;
@@ -654,14 +614,14 @@ export async function deleteKpiAction(formData: FormData) {
 
   const allowed =
     (kpi.level === "org" && me.role === "hr") ||
-    (kpi.level === "division" && me.role === "division_head" && kpi.division_id === me.divisionId) ||
-    (kpi.level === "department" && me.role === "dept_manager" && kpi.department_id === me.departmentId);
+    (kpi.level === "division" && me.role === "division_head" && kpi.divisionId === me.divisionId) ||
+    (kpi.level === "department" && me.role === "dept_manager" && kpi.departmentId === me.departmentId);
   if (!allowed) {
     await setFlash("ไม่มีสิทธิ์ลบ KPI นี้", "error");
     return;
   }
 
-  check(await supabase.from("kpis").delete().eq("id", id));
+  await prisma.kpi.delete({ where: { id } });
   await setFlash("ลบ KPI แล้ว");
   revalidatePath("/manage/org-kpi");
   revalidatePath("/manage/unit-kpi");
@@ -698,11 +658,14 @@ function parseItems(raw: string): AssessmentItem[] {
   }));
 }
 
+/** transaction client ของ Prisma (ตัวเดียวกับ prisma แต่ไม่มีเมธอด $transaction/$connect ฯลฯ) */
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
 /** เขียน assessment_items ทั้งหมดใหม่ (ลบของเดิมแล้ว insert ชุดใหม่ — ง่ายและถูกต้องกว่า diff เป็นรายแถว) */
-async function replaceAssessmentItems(assessmentId: string, items: AssessmentItem[]) {
-  check(await supabase.from("assessment_items").delete().eq("assessment_id", assessmentId));
+async function replaceAssessmentItems(tx: Tx, assessmentId: string, items: AssessmentItem[]) {
+  await tx.assessmentItem.deleteMany({ where: { assessmentId } });
   if (items.length > 0) {
-    check(await supabase.from("assessment_items").insert(itemsToRows(assessmentId, items)));
+    await tx.assessmentItem.createMany({ data: itemsToRows(assessmentId, items) });
   }
 }
 
@@ -742,62 +705,62 @@ export async function saveSelfAssessmentAction(formData: FormData) {
   }
 
   const selfTotal = weighted(items.map((i) => ({ weight: i.weight, score: i.selfScore })));
+  const companyId = me.companyId;
 
-  const { data: existingRow } = await supabase
-    .from("assessments")
-    .select("*")
-    .eq("user_id", me.id)
-    .eq("cycle_id", cycleId)
-    .maybeSingle();
-
-  if (existingRow && existingRow.status !== "draft") {
-    await setFlash("ส่งข้อมูลนี้ไปแล้ว ไม่สามารถแก้ไขได้อีก", "error");
-    return;
-  }
-
-  if (!existingRow) {
-    const id = newId("as");
-    check(
-      await supabase.from("assessments").insert({
-        id,
-        company_id: me.companyId,
-        cycle_id: cycleId,
-        user_id: me.id,
-        evaluator_id: me.managerId,
-        remark,
-        status: submit ? "submitted" : "draft",
-        self_total: selfTotal,
-        final_score: null,
-        submitted_at: submit ? nowISO() : null,
-        evaluated_at: null,
-        created_at: nowISO(),
-        updated_at: nowISO(),
-      })
-    );
-    await replaceAssessmentItems(id, items);
-  } else {
-    // เก็บคะแนนหัวหน้าเดิมไว้ถ้ามีการประเมินแล้ว
-    const { data: prevItemRows } = await supabase
-      .from("assessment_items")
-      .select("*")
-      .eq("assessment_id", existingRow.id);
-    const prevEval = new Map((prevItemRows ?? []).map(toAssessmentItem).map((it) => [it.id, it]));
-    const mergedItems = items.map((it) => {
-      const p = prevEval.get(it.id);
-      return p ? { ...it, evalScore: p.evalScore, evalComment: p.evalComment } : it;
+  // header กับ items ต้องลงด้วยกัน ไม่งั้นอาจเหลือ assessment ที่ไม่มีรายการ KPI เลย
+  const locked = await prisma.$transaction(async (tx) => {
+    const existing = await tx.assessment.findUnique({
+      where: { userId_cycleId: { userId: me.id, cycleId } },
     });
 
-    const patch: Record<string, unknown> = {
-      evaluator_id: me.managerId,
-      self_total: selfTotal,
-      remark,
-    };
-    if (submit) {
-      patch.status = "submitted";
-      patch.submitted_at = nowISO();
+    if (existing && existing.status !== "draft") return true;
+
+    if (!existing) {
+      const id = newId("as");
+      await tx.assessment.create({
+        data: {
+          id,
+          companyId,
+          cycleId,
+          userId: me.id,
+          evaluatorId: me.managerId,
+          remark,
+          status: submit ? "submitted" : "draft",
+          selfTotal,
+          finalScore: null,
+          submittedAt: submit ? new Date() : null,
+          evaluatedAt: null,
+        },
+      });
+      await replaceAssessmentItems(tx, id, items);
+    } else {
+      // เก็บคะแนนหัวหน้าเดิมไว้ถ้ามีการประเมินแล้ว
+      const prevItemRows = await tx.assessmentItem.findMany({
+        where: { assessmentId: existing.id },
+      });
+      const prevEval = new Map(prevItemRows.map(toAssessmentItem).map((it) => [it.id, it]));
+      const mergedItems = items.map((it) => {
+        const p = prevEval.get(it.id);
+        return p ? { ...it, evalScore: p.evalScore, evalComment: p.evalComment } : it;
+      });
+
+      await tx.assessment.update({
+        where: { id: existing.id },
+        data: {
+          evaluatorId: me.managerId,
+          selfTotal,
+          remark,
+          ...(submit ? { status: "submitted" as const, submittedAt: new Date() } : {}),
+        },
+      });
+      await replaceAssessmentItems(tx, existing.id, mergedItems);
     }
-    check(await supabase.from("assessments").update(patch).eq("id", existingRow.id));
-    await replaceAssessmentItems(existingRow.id, mergedItems);
+    return false;
+  });
+
+  if (locked) {
+    await setFlash("ส่งข้อมูลนี้ไปแล้ว ไม่สามารถแก้ไขได้อีก", "error");
+    return;
   }
 
   await setFlash(submit ? "ส่งให้ผู้บังคับบัญชาประเมินแล้ว" : "บันทึกร่างแล้ว");
@@ -818,55 +781,41 @@ export async function saveEvaluationAction(formData: FormData) {
     scores = {};
   }
 
-  const { data: aRow } = await supabase
-    .from("assessments")
-    .select("*")
-    .eq("id", assessmentId)
-    .maybeSingle();
+  const result = await prisma.$transaction(async (tx) => {
+    const aRow = await tx.assessment.findUnique({ where: { id: assessmentId } });
+    if (!aRow) return null;
 
-  let ok = false;
-  let ownerName: string | undefined;
-  let finalScore: number | null = null;
-
-  if (aRow) {
-    const { data: owner } = await supabase
-      .from("users")
-      .select("id, name, manager_id")
-      .eq("id", aRow.user_id)
-      .maybeSingle();
+    const owner = await tx.user.findUnique({
+      where: { id: aRow.userId },
+      select: { id: true, name: true, managerId: true },
+    });
 
     // ตรวจสิทธิ์: ต้องเป็นหัวหน้าของเจ้าของรายการ
-    if (owner && owner.manager_id === me.id) {
-      const { data: itemRows } = await supabase
-        .from("assessment_items")
-        .select("*")
-        .eq("assessment_id", assessmentId);
-      const items = (itemRows ?? []).map(toAssessmentItem).map((it) => {
-        const v = scores[it.id];
-        return v ? { ...it, evalScore: Number(v.score) || 0, evalComment: v.comment ?? "" } : it;
-      });
-      finalScore = weighted(items.map((i) => ({ weight: i.weight, score: i.evalScore })));
+    if (!owner || owner.managerId !== me.id) return null;
 
-      check(
-        await supabase
-          .from("assessments")
-          .update({
-            status: "evaluated",
-            evaluated_at: nowISO(),
-            evaluator_id: me.id,
-            final_score: finalScore,
-          })
-          .eq("id", assessmentId)
-      );
-      await replaceAssessmentItems(assessmentId, items);
+    const itemRows = await tx.assessmentItem.findMany({ where: { assessmentId } });
+    const items = itemRows.map(toAssessmentItem).map((it) => {
+      const v = scores[it.id];
+      return v ? { ...it, evalScore: Number(v.score) || 0, evalComment: v.comment ?? "" } : it;
+    });
+    const finalScore = weighted(items.map((i) => ({ weight: i.weight, score: i.evalScore })));
 
-      ok = true;
-      ownerName = owner.name;
-    }
-  }
+    await tx.assessment.update({
+      where: { id: assessmentId },
+      data: {
+        status: "evaluated",
+        evaluatedAt: new Date(),
+        evaluatorId: me.id,
+        finalScore,
+      },
+    });
+    await replaceAssessmentItems(tx, assessmentId, items);
 
-  if (ok) {
-    await setFlash(`บันทึกผลประเมิน ${ownerName ?? ""} แล้ว (คะแนน ${finalScore ?? "-"})`);
+    return { ownerName: owner.name, finalScore };
+  });
+
+  if (result) {
+    await setFlash(`บันทึกผลประเมิน ${result.ownerName} แล้ว (คะแนน ${result.finalScore ?? "-"})`);
   } else {
     await setFlash("ไม่สามารถบันทึกผลประเมินได้", "error");
   }
@@ -882,38 +831,29 @@ export async function resetAssessmentToDraftAction(formData: FormData) {
   const assessmentId = s(formData, "assessment_id");
   if (!assessmentId) return;
 
-  const { data: a } = await supabase
-    .from("assessments")
-    .select("id, company_id, user_id")
-    .eq("id", assessmentId)
-    .maybeSingle();
+  const a = await prisma.assessment.findUnique({
+    where: { id: assessmentId },
+    select: { id: true, companyId: true, user: { select: { name: true } } },
+  });
 
-  if (!a || a.company_id !== me.companyId) {
+  if (!a || a.companyId !== me.companyId) {
     await setFlash("ไม่พบรายการประเมินนี้", "error");
     return;
   }
 
-  const { data: owner } = await supabase
-    .from("users")
-    .select("name")
-    .eq("id", a.user_id)
-    .maybeSingle();
+  // updatedAt แตะเองอัตโนมัติจาก @updatedAt ใน schema.prisma
+  await prisma.assessment.update({
+    where: { id: assessmentId },
+    data: {
+      status: "draft",
+      selfTotal: null,
+      finalScore: null,
+      submittedAt: null,
+      evaluatedAt: null,
+    },
+  });
 
-  check(
-    await supabase
-      .from("assessments")
-      .update({
-        status: "draft",
-        self_total: null,
-        final_score: null,
-        submitted_at: null,
-        evaluated_at: null,
-        updated_at: nowISO(),
-      })
-      .eq("id", assessmentId)
-  );
-
-  await setFlash(`รีเซ็ตการประเมินของ ${owner?.name ?? ""} กลับเป็นร่างแล้ว`);
+  await setFlash(`รีเซ็ตการประเมินของ ${a.user.name} กลับเป็นร่างแล้ว`);
   revalidatePath("/manage/employees");
   revalidatePath("/evaluate");
   revalidatePath("/dashboard");
@@ -932,15 +872,14 @@ export async function sendAnnouncementAction(formData: FormData) {
     return;
   }
 
-  check(
-    await supabase.from("announcements").insert({
+  await prisma.announcement.create({
+    data: {
       id: newId("ann"),
-      company_id: me.companyId,
+      companyId: me.companyId,
       message,
-      created_by_id: me.id,
-      created_at: nowISO(),
-    })
-  );
+      createdById: me.id,
+    },
+  });
   await setFlash("ส่งข้อความถึงพนักงานทุกคนแล้ว");
   revalidatePath("/manage/announce");
   revalidatePath("/", "layout");

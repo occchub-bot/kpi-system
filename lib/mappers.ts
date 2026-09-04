@@ -1,4 +1,21 @@
-// แปลง row จาก Supabase (snake_case) เป็น entity ของแอป (camelCase) ตาม lib/types.ts
+// แปลง row จาก Prisma เป็น entity ของแอปตาม lib/types.ts
+//
+// ชื่อ field ตรงกันอยู่แล้ว (schema.prisma ประกาศเป็น camelCase แล้ว @map ลงคอลัมน์ snake_case)
+// เหลืองานแปลงชนิดข้อมูล 2 อย่างที่ Prisma คืนมาไม่ตรงกับ lib/types.ts:
+//   timestamptz -> Date    ต้องแปลงเป็น ISO string
+//   numeric     -> Decimal ต้องแปลงเป็น number
+import type {
+  Announcement as AnnouncementRow,
+  Assessment as AssessmentRow,
+  AssessmentItem as AssessmentItemRow,
+  Company as CompanyRow,
+  Cycle as CycleRow,
+  Department as DepartmentRow,
+  Division as DivisionRow,
+  Kpi as KpiRow,
+  Prisma,
+  User as UserRow,
+} from "@prisma/client";
 import type {
   Announcement,
   Assessment,
@@ -11,126 +28,141 @@ import type {
   User,
 } from "./types";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-type Row = Record<string, any>;
-
-export function toCompany(r: Row): Company {
-  return { id: r.id, name: r.name, createdAt: r.created_at };
+/** Decimal (numeric) -> number */
+function dec(v: Prisma.Decimal): number {
+  return v.toNumber();
 }
 
-export function toDivision(r: Row): Division {
-  return { id: r.id, companyId: r.company_id, name: r.name, headUserId: r.head_user_id };
+/** Decimal | null -> number | null */
+function decOrNull(v: Prisma.Decimal | null): number | null {
+  return v === null ? null : v.toNumber();
 }
 
-export function toDepartment(r: Row): Department {
+/** Date | null -> ISO string | null */
+function isoOrNull(v: Date | null): string | null {
+  return v === null ? null : v.toISOString();
+}
+
+export function toCompany(r: CompanyRow): Company {
+  return { id: r.id, name: r.name, createdAt: r.createdAt.toISOString() };
+}
+
+export function toDivision(r: DivisionRow): Division {
+  return { id: r.id, companyId: r.companyId, name: r.name, headUserId: r.headUserId };
+}
+
+export function toDepartment(r: DepartmentRow): Department {
   return {
     id: r.id,
-    companyId: r.company_id,
-    divisionId: r.division_id,
+    companyId: r.companyId,
+    divisionId: r.divisionId,
     name: r.name,
-    headUserId: r.head_user_id,
+    headUserId: r.headUserId,
   };
 }
 
-export function toUser(r: Row): User {
+export function toUser(r: UserRow): User {
   return {
     id: r.id,
-    companyId: r.company_id,
-    empId: r.emp_id,
+    companyId: r.companyId,
+    empId: r.empId,
     name: r.name,
     email: r.email,
     phone: r.phone,
     role: r.role,
-    divisionId: r.division_id,
-    departmentId: r.department_id,
+    divisionId: r.divisionId,
+    departmentId: r.departmentId,
     position: r.position,
-    managerId: r.manager_id,
-    isActive: r.is_active,
-    createdAt: r.created_at,
+    managerId: r.managerId,
+    isActive: r.isActive,
+    createdAt: r.createdAt.toISOString(),
   };
 }
 
-export function toCycle(r: Row): Cycle {
+export function toCycle(r: CycleRow): Cycle {
   return {
     id: r.id,
-    companyId: r.company_id,
+    companyId: r.companyId,
     name: r.name,
     year: r.year,
     active: r.active,
-    createdAt: r.created_at,
+    createdAt: r.createdAt.toISOString(),
   };
 }
 
-export function toKpi(r: Row): Kpi {
+export function toKpi(r: KpiRow): Kpi {
   return {
     id: r.id,
-    companyId: r.company_id,
+    companyId: r.companyId,
     level: r.level,
     title: r.title,
-    divisionId: r.division_id,
-    departmentId: r.department_id,
-    parentKpiId: r.parent_kpi_id,
-    createdById: r.created_by_id,
-    createdAt: r.created_at,
+    divisionId: r.divisionId,
+    departmentId: r.departmentId,
+    parentKpiId: r.parentKpiId,
+    createdById: r.createdById ?? "",
+    createdAt: r.createdAt.toISOString(),
   };
 }
 
-export function toAssessmentItem(r: Row): AssessmentItem {
+export function toAssessmentItem(r: AssessmentItemRow): AssessmentItem {
   return {
-    id: r.item_id,
+    id: r.itemId,
     title: r.title,
-    weight: Number(r.weight),
+    weight: dec(r.weight),
     target: r.target,
-    linkedKpiId: r.linked_kpi_id,
-    selfScore: Number(r.self_score),
-    selfComment: r.self_comment,
-    evalScore: r.eval_score === null ? null : Number(r.eval_score),
-    evalComment: r.eval_comment,
+    linkedKpiId: r.linkedKpiId,
+    selfScore: dec(r.selfScore),
+    selfComment: r.selfComment,
+    evalScore: decOrNull(r.evalScore),
+    evalComment: r.evalComment,
   };
 }
 
-export function toAssessment(r: Row, items: AssessmentItem[]): Assessment {
+export function toAssessment(r: AssessmentRow, items: AssessmentItem[]): Assessment {
   return {
     id: r.id,
-    companyId: r.company_id,
-    cycleId: r.cycle_id,
-    userId: r.user_id,
-    evaluatorId: r.evaluator_id,
+    companyId: r.companyId,
+    cycleId: r.cycleId,
+    userId: r.userId,
+    evaluatorId: r.evaluatorId,
     items,
     remark: r.remark ?? undefined,
     status: r.status,
-    selfTotal: r.self_total === null ? null : Number(r.self_total),
-    finalScore: r.final_score === null ? null : Number(r.final_score),
-    submittedAt: r.submitted_at,
-    evaluatedAt: r.evaluated_at,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    selfTotal: decOrNull(r.selfTotal),
+    finalScore: decOrNull(r.finalScore),
+    submittedAt: isoOrNull(r.submittedAt),
+    evaluatedAt: isoOrNull(r.evaluatedAt),
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
   };
 }
 
-export function toAnnouncement(r: Row): Announcement {
+export function toAnnouncement(r: AnnouncementRow): Announcement {
   return {
     id: r.id,
-    companyId: r.company_id,
+    companyId: r.companyId,
     message: r.message,
-    createdById: r.created_by_id,
-    createdAt: r.created_at,
+    createdById: r.createdById ?? "",
+    createdAt: r.createdAt.toISOString(),
   };
 }
 
-/** แปลง AssessmentItem[] ของ Assessment หนึ่งรายการ ให้เป็น row ของตาราง assessment_items (สำหรับ insert/update) */
-export function itemsToRows(assessmentId: string, items: AssessmentItem[]): Row[] {
+/** แปลง AssessmentItem[] ของ Assessment หนึ่งรายการ ให้เป็น row สำหรับ createMany */
+export function itemsToRows(
+  assessmentId: string,
+  items: AssessmentItem[]
+): Prisma.AssessmentItemCreateManyInput[] {
   return items.map((it, idx) => ({
-    assessment_id: assessmentId,
-    item_id: it.id,
+    assessmentId,
+    itemId: it.id,
     position: idx,
     title: it.title,
     weight: it.weight,
     target: it.target,
-    linked_kpi_id: it.linkedKpiId,
-    self_score: it.selfScore,
-    self_comment: it.selfComment,
-    eval_score: it.evalScore,
-    eval_comment: it.evalComment,
+    linkedKpiId: it.linkedKpiId,
+    selfScore: it.selfScore,
+    selfComment: it.selfComment,
+    evalScore: it.evalScore,
+    evalComment: it.evalComment,
   }));
 }

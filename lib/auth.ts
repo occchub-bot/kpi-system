@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { supabase } from "./supabase";
+import { prisma } from "./prisma";
 import { toUser } from "./mappers";
 import { verifyPassword } from "./password";
 import type { User } from "./types";
@@ -11,9 +11,9 @@ export async function getCurrentUser(): Promise<User | null> {
   const jar = await cookies();
   const uid = jar.get(COOKIE)?.value;
   if (!uid) return null;
-  const { data, error } = await supabase.from("users").select("*").eq("id", uid).maybeSingle();
-  if (error || !data) return null;
-  return toUser(data);
+  const row = await prisma.user.findUnique({ where: { id: uid } });
+  if (!row) return null;
+  return toUser(row);
 }
 
 export async function setSession(userId: string): Promise<void> {
@@ -34,8 +34,9 @@ export async function clearSession(): Promise<void> {
 /** ตรวจอีเมล + รหัสผ่าน คืน user ถ้าถูกต้อง (login) */
 export async function verifyLogin(email: string, password: string): Promise<User | null> {
   const e = email.trim().toLowerCase();
-  const { data, error } = await supabase.from("users").select("*").ilike("email", e).maybeSingle();
-  if (error || !data) return null;
-  if (!verifyPassword(password, data.password_hash)) return null;
-  return toUser(data);
+  // อีเมลใน DB อาจมีตัวพิมพ์ใหญ่ปน — เทียบแบบไม่สนตัวพิมพ์ (เดิมใช้ ilike ของ PostgREST)
+  const row = await prisma.user.findFirst({ where: { email: { equals: e, mode: "insensitive" } } });
+  if (!row) return null;
+  if (!verifyPassword(password, row.passwordHash)) return null;
+  return toUser(row);
 }
