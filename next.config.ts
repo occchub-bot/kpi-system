@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // build บน GitHub Actions แล้วส่งเฉพาะก้อน standalone ขึ้นเซิร์ฟเวอร์
+  // (server.js + node_modules เท่าที่ใช้จริง) เซิร์ฟเวอร์จึงไม่ต้อง npm ci / build เอง
+  output: "standalone",
+
   // กำหนด root ให้ชัด เพื่อตัด warning เรื่อง lockfile ซ้อนจากโฟลเดอร์ home
   turbopack: {
     root: __dirname,

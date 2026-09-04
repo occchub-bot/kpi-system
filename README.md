@@ -33,23 +33,30 @@ npm run build
 npm start                  # ทดสอบเฉย ๆ ของจริงให้ pm2 คุมในหัวข้อ 3 (พอร์ต 3777)
 ```
 
-### 3. ให้รันค้างด้วย pm2
+### 3. เตรียมโฟลเดอร์แอป + pm2 (ครั้งเดียว)
 
-แอปฟังที่ **พอร์ต 3777** (กำหนดใน `ecosystem.config.js` ที่อยู่ใน repo)
+เซิร์ฟเวอร์ **ไม่ต้อง clone repo และไม่ต้อง build เอง** — GitHub Actions build เป็นก้อน
+`output: "standalone"` แล้วส่ง tar มาลงที่โฟลเดอร์นี้ให้ (ดูหัวข้อ 6)
 
 ```bash
-sudo npm i -g pm2
+sudo mkdir -p /srv/kpi-system
+sudo chown "$USER":"$USER" /srv/kpi-system
 cd /srv/kpi-system
-pm2 startOrReload ecosystem.config.js --update-env
-pm2 save
-pm2 startup            # copy คำสั่งที่มันพิมพ์ออกมาไปรัน เพื่อให้ขึ้นเองหลังรีบูต
+nano .env                  # ใส่ DATABASE_URL (ไฟล์นี้ deploy ไม่แตะ เก็บไว้ถาวร)
 
-pm2 status
-pm2 logs kpi-system
+sudo npm i -g pm2
+pm2 startup                # copy คำสั่งที่มันพิมพ์ออกมาไปรัน เพื่อให้ขึ้นเองหลังรีบูต
 ```
 
-`DATABASE_URL` อ่านจาก `.env` (Next โหลดให้เอง) ไม่ต้องใส่ใน pm2
-แต่ **`PORT` ต้องอยู่ใน `ecosystem.config.js`** เพราะ `next start` อ่าน PORT ตอน CLI เริ่ม
+หลัง deploy รอบแรก โฟลเดอร์จะมี `server.js` + `.next/` + `node_modules/` + `ecosystem.config.js`
+(มาจาก bundle) และ `.env` + `logs/` ที่เป็นของเซิร์ฟเวอร์เอง
+
+```bash
+pm2 status
+pm2 logs kpi-system        # หรือ tail -f logs/pm2-error.log
+```
+
+แอปฟังที่ **127.0.0.1:3777** เท่านั้น (ตั้งใน `ecosystem.config.js`) ออกเน็ตผ่าน nginx อย่างเดียว
 
 ### 4. nginx (พอร์ต 80)
 
@@ -71,74 +78,67 @@ sudo ufw allow 80/tcp
 
 ทำ SSL ทีหลังด้วย `sudo certbot --nginx -d kpi-occc.rnk.icu` (certbot จะเติม block 443 ให้เอง)
 
-### 5. อัปเดตเวอร์ชันใหม่ (ทำมือ)
+### 5. อัปเดตเวอร์ชันใหม่
 
-ปกติใช้ GitHub Actions ในหัวข้อ 6 แทน แต่ถ้าจะทำมือ:
+กด workflow ในหัวข้อ 6 อย่างเดียวจบ ไม่ต้อง ssh เข้าไปทำอะไรบนเซิร์ฟเวอร์
+
+ถ้าจำเป็นต้องทำมือจริง ๆ (GitHub ล่ม) ให้ build บนเครื่องตัวเองแล้วส่งขึ้นไปแบบเดียวกับ workflow:
 
 ```bash
+npm ci && npm run build
+cp -r .next/static .next/standalone/.next/static
+cp -r public .next/standalone/public
+cp ecosystem.config.js .next/standalone/
+tar -czf kpi-bundle.tar.gz -C .next/standalone .
+scp kpi-bundle.tar.gz user@server:/srv/kpi-system/
+
+# บนเซิร์ฟเวอร์
 cd /srv/kpi-system
-git pull
-npm ci
-npm run db:migrate         # apply migration ใหม่ (ถ้ามี) — ต้องรันก่อน build เสมอ
-npm run build
-pm2 reload kpi-system --update-env
+rm -rf .next node_modules public server.js package.json ecosystem.config.js
+tar -xzf kpi-bundle.tar.gz && rm kpi-bundle.tar.gz
+PORT=3777 pm2 startOrReload ecosystem.config.js --update-env && pm2 save
 ```
 
 ### 6. Deploy อัตโนมัติด้วย GitHub Actions
 
 workflow: `.github/workflows/deploy.yml` — รันด้วยมือที่แท็บ **Actions → Deploy → Run workflow**
-ต้องพิมพ์รหัสผ่านให้ตรงกับ secret `DEPLOY_PASSWORD` ก่อน ถึงจะ ssh เข้าเซิร์ฟเวอร์แล้วรัน
-`git reset --hard origin/<branch>` → `npm ci` → `db:migrate` → `build` → `pm2 startOrReload`
-แล้วเช็ค health ด้วย `curl http://127.0.0.1:3777/login`
+ต้องพิมพ์รหัสผ่านให้ตรงกับ secret `DEPLOY_PASSWORD` ก่อน ถึงจะเริ่มทำงาน
+
+ขั้นตอนที่มันทำ: `npm ci` → `next build` (บน runner) → มัด standalone เป็น tar → scp ขึ้นเซิร์ฟเวอร์
+→ `prisma migrate deploy` ผ่าน ssh tunnel → แตกไฟล์ทับของเก่า → `pm2 startOrReload` → health check
+`/login` 30 วิ **ไม่แตะ `.env` กับ `logs/` บนเซิร์ฟเวอร์**
 
 **Secrets ที่ต้องตั้ง** (Settings → Secrets and variables → Actions → New repository secret)
 
-| ชื่อ | จำเป็น | ตัวอย่าง / ค่าเริ่มต้น |
+| ชื่อ | จำเป็น | ค่า / ค่าเริ่มต้น |
 |---|---|---|
 | `DEPLOY_PASSWORD` | ✅ | รหัสผ่านยืนยันก่อน deploy |
-| `SSH_PRIVATE_KEY` | ✅ | private key ทั้งไฟล์ รวมบรรทัด `-----BEGIN...` / `-----END...` |
-| `SSH_HOST` | ✅ | `203.0.113.10` หรือโดเมน |
-| `SSH_USER` | ✅ | `kpi` (ผู้ใช้ที่เป็นเจ้าของ `/srv/kpi-system`) |
+| `SSH_PRIVATE_KEY` | ✅ | private key ทั้งไฟล์ รวมบรรทัด `-----BEGIN...` / `-----END...` (ห้ามมี passphrase) |
+| `SSH_HOST` | ✅ | IP หรือโดเมนของเซิร์ฟเวอร์ |
+| `SSH_USER` | ✅ | ผู้ใช้ที่เป็นเจ้าของ `/srv/kpi-system` และเป็นคนรัน pm2 |
+| `DATABASE_URL` | – | ใส่แล้วจะ migrate ให้อัตโนมัติผ่าน ssh tunnel (สายเดียวกับใน `.env` บนเซิร์ฟเวอร์) ไม่ใส่ = ข้าม ต้อง migrate เอง |
 | `SSH_PORT` | – | ไม่ตั้ง = `22` |
 | `APP_DIR` | – | ไม่ตั้ง = `/srv/kpi-system` |
 | `PM2_NAME` | – | ไม่ตั้ง = `kpi-system` |
-| `APP_PORT` | – | ไม่ตั้ง = `3777` (ใช้เช็ค health อย่างเดียว ตัวจริงอยู่ใน `ecosystem.config.js`) |
+| `APP_PORT` | – | ไม่ตั้ง = `3777` |
 
-เตรียมฝั่งเซิร์ฟเวอร์ (ทำครั้งเดียว)
+ฐานข้อมูลไม่ต้องเปิดออกเน็ต — workflow เปิด ssh tunnel (`-L 55432:127.0.0.1:5432`) แล้วยิง
+`prisma migrate deploy` ผ่านอุโมงค์นั้น เซิร์ฟเวอร์จึงไม่ต้องมี prisma CLI ติดตั้งไว้เลย
+
+เตรียม key (ทำครั้งเดียว)
 
 ```bash
-# บนเครื่องตัวเอง: สร้างคีย์เฉพาะงาน deploy (ห้ามใส่ passphrase — GA พิมพ์ให้ไม่ได้)
+# บนเครื่องตัวเอง
 ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/kpi_deploy -N ""
 
-# บนเซิร์ฟเวอร์ (รันในฐานะ user kpi): อนุญาต public key
+# บนเซิร์ฟเวอร์ (user เดียวกับ SSH_USER)
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 echo '<เนื้อหาไฟล์ kpi_deploy.pub>' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-pm2 รันในสิทธิ์ user เดียวกับที่ ssh เข้ามา จึง **ไม่ต้องตั้ง sudo ให้ workflow เลย**
-(ขอแค่ `pm2` อยู่ใน PATH ของ user นั้น และเคย `pm2 save` ไว้แล้ว)
-
-เอา **ไฟล์ private key** (`~/.ssh/kpi_deploy` ไม่ใช่ `.pub`) ไปใส่ใน secret `SSH_PRIVATE_KEY`
-`.env` บนเซิร์ฟเวอร์ถูก gitignore ไว้ `git reset --hard` จึงไม่ทับ
-
-`APP_DIR` **ต้องเป็น git clone ของ repo นี้** — ถ้าไม่ใช่ (เช่นอัปโหลดไฟล์ขึ้นไปเอง)
-`git fetch` จะล้มด้วย `fatal: not a git repository` workflow จัดการให้เองเฉพาะตอนโฟลเดอร์
-ยังว่าง (หรือมีแค่ `.env`) — จะ `git init` + ผูก origin ให้ ถ้ามีไฟล์อื่นอยู่แล้วและไม่ใช่โค้ด
-โปรเจกต์นี้ จะหยุดพร้อมบอกให้ไปตรวจ secret `APP_DIR` แทนการเขียนทับ
-
-แก้ด้วยมือบนเซิร์ฟเวอร์ก็ได้ (ครั้งเดียว):
-
-```bash
-cd /srv/kpi-system                 # ให้ตรงกับ APP_DIR
-git init
-git remote add origin https://github.com/occchub-bot/kpi-system.git
-git fetch origin
-git reset --hard origin/main       # .env ไม่โดนทับ
-```
-
-repo นี้เป็น public เซิร์ฟเวอร์จึง clone ผ่าน HTTPS ได้เลยไม่ต้องมีคีย์
-ถ้าเปลี่ยนเป็น private ต้องตั้ง deploy key ให้เซิร์ฟเวอร์ก่อน แล้วใช้ remote แบบ `git@github.com:`
+เอา **ไฟล์ private key** (`~/.ssh/kpi_deploy` ไม่ใช่ `.pub`) ไปใส่ secret `SSH_PRIVATE_KEY`
+ไม่ต้องตั้ง sudo ให้ deploy user เลย เพราะ pm2 รันในสิทธิ์ user นั้นเอง
 
 ### 7. สำรอง / กู้คืนข้อมูล
 

@@ -170,5 +170,10 @@ scripts/backup-db.mjs  pg_dump -> backups/*.sql.gz
 - `lib/store.ts` ใส่ `id: "asc"` เป็น tiebreaker เสมอ เพราะ seed หลายแถวมี `createdAt` ตรงกันเป๊ะ
 - `assessments.updatedAt` ใช้ `@updatedAt` ของ Prisma (ไม่มี trigger ใน DB แล้ว) —
   การเขียนด้วย raw SQL จะไม่แตะคอลัมน์นี้ให้
-- deploy คือ `npm ci && npm run db:migrate && npm run build && npm start` — **`db:migrate`
-  ต้องรันก่อน `build` เสมอ** ไม่งั้นแอปขึ้นมาเจอ schema เก่า
+- deploy ผ่าน `.github/workflows/deploy.yml` เท่านั้น (กดเองที่แท็บ Actions ต้องใส่รหัสผ่าน):
+  build `output: "standalone"` บน runner → scp tar ขึ้นเซิร์ฟเวอร์ → `prisma migrate deploy`
+  ผ่าน ssh tunnel → แตกไฟล์ทับ → `pm2 startOrReload ecosystem.config.js`
+  เซิร์ฟเวอร์ไม่มี repo/ไม่ build เอง มีแค่ `.env` + `logs/` ที่ deploy ไม่แตะ
+  **migrate ต้องเสร็จก่อนสลับโค้ดใหม่เสมอ** ไม่งั้นแอปใหม่ขึ้นมาเจอ schema เก่า
+- แก้ `next.config.ts` ระวัง `output: "standalone"` — เอาออกเมื่อไหร่ deploy พังทันที
+  (workflow มัด `.next/standalone` เป็น bundle) และไฟล์ที่ Next trace ไม่เจอจะไม่ถูกส่งขึ้นไปด้วย

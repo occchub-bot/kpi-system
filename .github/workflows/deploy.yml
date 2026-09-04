@@ -1,7 +1,19 @@
+# Deploy KPI System (Next.js standalone) -> SSH -> PM2 -> nginx
+#
+# build บน runner แล้วส่งขึ้นเซิร์ฟเวอร์เป็น tar ก้อนเดียว
+# เซิร์ฟเวอร์ไม่ต้องมี git / npm ci / build เอง
+#
+# Secrets ที่ต้องตั้ง (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_PASSWORD  รหัสผ่านที่ต้องพิมพ์ก่อน deploy
+#   SSH_HOST / SSH_USER / SSH_PRIVATE_KEY   (SSH_PORT ไม่ตั้ง = 22)
+#   DATABASE_URL     ไม่บังคับ — ใส่แล้วจะรัน prisma migrate deploy ผ่าน ssh tunnel ให้
+#                    (ใส่สายเดียวกับ .env บนเซิร์ฟเวอร์ เช่น postgresql://kpi:pw@localhost:5432/kpi)
+#   APP_DIR / PM2_NAME / APP_PORT           ไม่ตั้ง = /srv/kpi-system, kpi-system, 3777
+#
+# nginx อยู่ที่ deploy/nginx/kpi-occc.rnk.icu.conf — ติดตั้งด้วยมือครั้งเดียว
+# workflow นี้ไม่แตะ .env และ logs/ บนเซิร์ฟเวอร์เด็ดขาด
 name: Deploy
 
-# รันด้วยมือเท่านั้น: Actions -> Deploy -> Run workflow
-# ต้องพิมพ์รหัสผ่านให้ตรงกับ secret DEPLOY_PASSWORD ก่อน ถึงจะ deploy
 on:
   workflow_dispatch:
     inputs:
@@ -10,130 +22,165 @@ on:
         required: true
         type: string
       seed:
-        description: "รัน db:seed ด้วย (ครั้งแรกเท่านั้น)"
+        description: "รัน db:seed ด้วย (ครั้งแรกเท่านั้น ข้อมูลเดิมจะถูกทับ)"
         required: false
         default: false
         type: boolean
 
 concurrency:
-  group: deploy-production
+  group: deploy-kpi-system
   cancel-in-progress: false
 
 jobs:
-  gate:
-    name: ตรวจรหัสผ่าน
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      APP_DIR: ${{ secrets.APP_DIR || '/srv/kpi-system' }}
+      PM2_NAME: ${{ secrets.PM2_NAME || 'kpi-system' }}
+      APP_PORT: ${{ secrets.APP_PORT || '3777' }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      HAS_DB_URL: ${{ secrets.DATABASE_URL != '' }}
     steps:
-      - name: ตรวจรหัสผ่านที่กรอกมา
+      - name: ตรวจรหัสผ่านก่อน deploy
         env:
           GIVEN: ${{ inputs.password }}
           EXPECTED: ${{ secrets.DEPLOY_PASSWORD }}
         run: |
           if [ -z "$EXPECTED" ]; then
-            echo "::error::ยังไม่ได้ตั้ง secret DEPLOY_PASSWORD ใน repo"
+            echo "::error::ยังไม่ได้ตั้ง secret DEPLOY_PASSWORD"
             exit 1
           fi
           if [ "$GIVEN" != "$EXPECTED" ]; then
             echo "::error::รหัสผ่านไม่ถูกต้อง ยกเลิกการ deploy"
             exit 1
           fi
-          echo "รหัสผ่านถูกต้อง"
 
-  deploy:
-    name: Deploy ขึ้นเซิร์ฟเวอร์
-    needs: gate
-    runs-on: ubuntu-latest
-    steps:
-      - name: ตั้งค่า SSH key
-        env:
-          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci # postinstall เรียก prisma generate ให้เอง
+
+      - name: Build
+        run: npm run build
+
+      # standalone ไม่ copy static/public ให้เอง ต้องย้ายเข้าไปเอง
+      # แล้วมัดเป็น tar ก้อนเดียว (glob ของ scp ไม่จับชื่อที่ขึ้นต้นด้วยจุด -> .next/ จะหาย)
+      - name: Assemble standalone bundle
         run: |
+          set -euo pipefail
+          cp -r .next/static .next/standalone/.next/static
+          if [ -d public ]; then cp -r public .next/standalone/public; fi
+          cp ecosystem.config.js .next/standalone/
+
+          # prisma 7 ไม่มี engine binary แล้ว client เป็น JS+wasm ล้วน ซึ่ง Next trace ตามมาให้
+          # แต่เช็คไว้ก่อน ถ้าหายจะพังตอน query ไม่ใช่ตอน start (หาสาเหตุยาก)
+          for d in .prisma/client @prisma/client @prisma/adapter-pg pg; do
+            test -d ".next/standalone/node_modules/$d" || {
+              echo "::error::bundle ขาด node_modules/$d"
+              exit 1
+            }
+          done
+
+          tar -czf kpi-bundle.tar.gz -C .next/standalone .
+          ls -lh kpi-bundle.tar.gz
+
+      - name: Upload bundle
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ env.SSH_PORT }}
+          source: kpi-bundle.tar.gz
+          target: ${{ env.APP_DIR }}
+          overwrite: true
+
+      # migrate ต้องเสร็จก่อนสลับโค้ดใหม่เสมอ
+      # DB ไม่ได้เปิดออกเน็ต จึงต่อผ่าน ssh tunnel จาก runner แทน
+      - name: Migrate DB (ผ่าน ssh tunnel)
+        if: env.HAS_DB_URL == 'true'
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          DB_URL_RAW: ${{ secrets.DATABASE_URL }}
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          RUN_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
           ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: git pull + migrate + build + pm2 reload
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
-          APP_DIR: ${{ secrets.APP_DIR || '/srv/kpi-system' }}
-          PM2_NAME: ${{ secrets.PM2_NAME || 'kpi-system' }}
-          APP_PORT: ${{ secrets.APP_PORT || '3777' }}
-          BRANCH: ${{ github.ref_name }}
-          RUN_SEED: ${{ inputs.seed }}
-          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
-        run: |
-          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" APP_DIR="$APP_DIR" PM2_NAME="$PM2_NAME" APP_PORT="$APP_PORT" BRANCH="$BRANCH" RUN_SEED="$RUN_SEED" REPO_URL="$REPO_URL" 'bash -ex -s' <<'REMOTE'
-          # ssh แบบ non-interactive ไม่โหลด .bashrc ให้ครบ ถ้าใช้ nvm ต้อง source เอง
-          if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
-          export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
+          ssh -f -N -o ExitOnForwardFailure=yes -i ~/.ssh/id_deploy -p "$SSH_PORT" \
+            -L 55432:127.0.0.1:5432 "$SSH_USER@$SSH_HOST"
 
-          mkdir -p "$APP_DIR"
-          cd "$APP_DIR"
+          # ชี้ host/port ของสายเดิมมาที่ปลายอุโมงค์ (รหัสผ่าน/ชื่อ db เดิมทั้งหมด)
+          TUNNELED=$(node -e 'const u=new URL(process.env.DB_URL_RAW);u.hostname="127.0.0.1";u.port="55432";process.stdout.write(u.toString())')
+          echo "::add-mask::$TUNNELED"
+          export DATABASE_URL="$TUNNELED"
 
-          # deploy ครั้งแรก: โฟลเดอร์ยังไม่ใช่ git repo -> ผูกกับ origin ให้เอง
-          # กันกรณี secret APP_DIR ชี้ผิดโฟลเดอร์: ยอม init เฉพาะตอนโฟลเดอร์ว่าง
-          # (ไม่นับ .env) หรือเป็นโค้ดโปรเจกต์นี้อยู่แล้วเท่านั้น
-          if [ ! -d .git ]; then
-            if [ -n "$(ls -A . | grep -v '^\.env$' || true)" ] \
-               && ! grep -q '"name": *"kpi-system"' package.json 2>/dev/null; then
-              echo "::error::$APP_DIR ไม่ใช่ git repo และไม่ใช่โฟลเดอร์ของโปรเจกต์นี้ — ตรวจ secret APP_DIR"
-              exit 1
-            fi
-            git init -q
-            git remote add origin "$REPO_URL"
-          fi
-          git remote set-url origin "$REPO_URL"
+          npx prisma migrate deploy
+          if [ "$RUN_SEED" = "true" ]; then node prisma/seed.mjs; fi
 
-          git fetch --prune origin
-          # ไม่ใช้ checkout -B เพราะ deploy ครั้งแรกยังไม่มี HEAD และไฟล์เดิมที่ไม่ได้ track
-          # จะทำให้ checkout ปฏิเสธ — reset --hard เขียนทับให้หมด (.env ถูก gitignore ไว้ ไม่โดนทับ)
-          git symbolic-ref HEAD "refs/heads/$BRANCH"
-          git reset --hard "origin/$BRANCH"
+      - name: ข้าม migrate
+        if: env.HAS_DB_URL != 'true'
+        run: echo "::warning::ไม่ได้ตั้ง secret DATABASE_URL — ข้าม prisma migrate deploy (ต้องรันเองบนเซิร์ฟเวอร์)"
 
-          npm ci
-          npm run db:migrate            # ต้องรันก่อน build เสมอ
-          if [ "$RUN_SEED" = "true" ]; then npm run db:seed; fi
-          npm run build
+      # ลบของเก่าหลังอัปโหลดสำเร็จแล้วเท่านั้น เว็บจะได้ไม่ล่มค้างถ้าอัปโหลดพัง
+      - name: Swap build + reload PM2 + health check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ env.SSH_PORT }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd ${{ env.APP_DIR }}
+            mkdir -p logs
 
-          # PORT/PM2_NAME ถูกอ่านโดย ecosystem.config.js -> พอร์ตที่แอปเปิดกับที่ health check
-          # ยิงจึงเป็นค่าเดียวกันเสมอ
-          export PORT="$APP_PORT"
+            test -s kpi-bundle.tar.gz || { echo "ไม่พบ kpi-bundle.tar.gz — อัปโหลดไม่สำเร็จ"; exit 1; }
 
-          # startOrReload = start ถ้ายังไม่เคยรัน, reload ถ้ามี process อยู่แล้ว
-          # ถ้าค้างอยู่ในสถานะ errored จน reload ไม่ได้ ให้ลบทิ้งแล้ว start ใหม่
-          pm2 startOrReload ecosystem.config.js --update-env || {
-            pm2 delete "$PM2_NAME" || true
-            pm2 start ecosystem.config.js --update-env
-          }
-          pm2 save
+            echo "== ลบ build เก่า (ไม่แตะ .env / logs) =="
+            rm -rf .next node_modules public server.js package.json ecosystem.config.js
 
-          # health check: ต้องได้ 200 จาก /login ภายใน ~40 วิ
-          for i in $(seq 1 20); do
-            if curl -fsS -o /dev/null "http://127.0.0.1:$APP_PORT/login"; then
-              echo "แอปขึ้นแล้วที่พอร์ต $APP_PORT"
-              pm2 describe "$PM2_NAME" || true
-              exit 0
-            fi
-            sleep 2
-          done
+            echo "== แตกไฟล์ =="
+            tar -xzf kpi-bundle.tar.gz
+            rm -f kpi-bundle.tar.gz
 
-          echo "===== pm2 list ====="
-          pm2 list || true
-          echo "===== pm2 describe ====="
-          pm2 describe "$PM2_NAME" || true
-          echo "===== log ของแอป ====="
-          pm2 logs "$PM2_NAME" --lines 80 --nostream || true
-          echo "===== log ของ pm2 daemon (spawn error โผล่ที่นี่) ====="
-          tail -n 80 "$HOME/.pm2/pm2.log" || true
-          echo "===== พอร์ตที่เปิดฟังอยู่ ====="
-          ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null || true
-          echo "===== node/npm ====="
-          command -v node && node -v || true
-          echo "แอปไม่ตอบที่พอร์ต $APP_PORT"
-          exit 1
-          REMOTE
+            echo "== ตรวจไฟล์ที่ขาดไม่ได้ =="
+            test -s server.js || { echo "ไม่พบ server.js"; exit 1; }
+            test -d .next/static || { echo "ไม่พบ .next/static — CSS/JS จะ 404 ทั้งเว็บ"; exit 1; }
+            test -s .env || echo "เตือน: ไม่มี .env ในโฟลเดอร์นี้ แอปจะต่อฐานข้อมูลไม่ได้"
+
+            echo "== reload PM2 =="
+            export PORT=${{ env.APP_PORT }} PM2_NAME=${{ env.PM2_NAME }}
+            pm2 startOrReload ecosystem.config.js --update-env || {
+              echo "reload ไม่ผ่าน (มักเกิดตอนเปลี่ยน exec_mode) — ลบแล้ว start ใหม่"
+              pm2 delete ${{ env.PM2_NAME }} || true
+              pm2 start ecosystem.config.js --update-env
+            }
+            pm2 save
+
+            echo "== health check (รอสูงสุด 30 วิ) =="
+            for i in $(seq 1 30); do
+              if curl -fsS --max-time 2 "http://127.0.0.1:${{ env.APP_PORT }}/login" >/dev/null 2>&1; then
+                echo "health OK"
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "health check FAILED — เว็บไม่ตอบภายใน 30 วิ"
+            pm2 describe ${{ env.PM2_NAME }} || true
+            tail -n 60 logs/pm2-error.log || true
+            tail -n 60 logs/pm2-out.log || true
+            exit 1
