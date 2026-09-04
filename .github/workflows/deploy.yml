@@ -8,7 +8,7 @@
 #   SSH_HOST / SSH_USER / SSH_PRIVATE_KEY   (SSH_PORT ไม่ตั้ง = 22)
 #   DATABASE_URL     ไม่บังคับ — ใส่แล้วจะรัน prisma migrate deploy ผ่าน ssh tunnel ให้
 #                    (ใส่สายเดียวกับ .env บนเซิร์ฟเวอร์ เช่น postgresql://kpi:pw@localhost:5432/kpi)
-#   APP_DIR / PM2_NAME / APP_PORT           ไม่ตั้ง = /srv/kpi-system, kpi-system, 3777
+#   APP_DIR / PM2_NAME / APP_PORT           ไม่ตั้ง = /var/www/kpi-system, kpi-system, 3777
 #
 # nginx อยู่ที่ deploy/nginx/kpi-occc.rnk.icu.conf — ติดตั้งด้วยมือครั้งเดียว
 # workflow นี้ไม่แตะ .env และ logs/ บนเซิร์ฟเวอร์เด็ดขาด
@@ -35,7 +35,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      APP_DIR: ${{ secrets.APP_DIR || '/srv/kpi-system' }}
+      APP_DIR: ${{ secrets.APP_DIR || '/var/www/kpi-system' }}
       PM2_NAME: ${{ secrets.PM2_NAME || 'kpi-system' }}
       APP_PORT: ${{ secrets.APP_PORT || '3777' }}
       SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
@@ -64,10 +64,17 @@ jobs:
           node-version: 22
           cache: npm
 
+      # prisma.config.ts บังคับให้มี DATABASE_URL ตั้งแต่ตอน `prisma generate` (postinstall)
+      # แต่ทั้ง generate และ build ไม่ได้ต่อ DB จริง ใส่ค่าหลอกไปก่อนได้
+      # (ตัวจริงใช้เฉพาะ step migrate ซึ่ง export ทับเอง)
       - name: Install dependencies
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build?schema=public
         run: npm ci # postinstall เรียก prisma generate ให้เอง
 
       - name: Build
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:5432/build?schema=public
         run: npm run build
 
       # standalone ไม่ copy static/public ให้เอง ต้องย้ายเข้าไปเอง

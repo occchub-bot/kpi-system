@@ -39,9 +39,9 @@ npm start                  # ทดสอบเฉย ๆ ของจริง�
 `output: "standalone"` แล้วส่ง tar มาลงที่โฟลเดอร์นี้ให้ (ดูหัวข้อ 6)
 
 ```bash
-sudo mkdir -p /srv/kpi-system
-sudo chown "$USER":"$USER" /srv/kpi-system
-cd /srv/kpi-system
+sudo mkdir -p /var/www/kpi-system
+sudo chown "$USER":"$USER" /var/www/kpi-system
+cd /var/www/kpi-system
 nano .env                  # ใส่ DATABASE_URL (ไฟล์นี้ deploy ไม่แตะ เก็บไว้ถาวร)
 
 sudo npm i -g pm2
@@ -64,7 +64,7 @@ pm2 logs kpi-system        # หรือ tail -f logs/pm2-error.log
 proxy `kpi-occc.rnk.icu` -> `127.0.0.1:3777`
 
 ```bash
-sudo cp /srv/kpi-system/deploy/nginx/kpi-occc.rnk.icu.conf /etc/nginx/sites-available/kpi-occc.rnk.icu
+sudo cp /var/www/kpi-system/deploy/nginx/kpi-occc.rnk.icu.conf /etc/nginx/sites-available/kpi-occc.rnk.icu
 sudo ln -s /etc/nginx/sites-available/kpi-occc.rnk.icu /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default      # ถ้าไม่ได้ใช้ default site
 sudo nginx -t && sudo systemctl reload nginx
@@ -90,10 +90,10 @@ cp -r .next/static .next/standalone/.next/static
 cp -r public .next/standalone/public
 cp ecosystem.config.js .next/standalone/
 tar -czf kpi-bundle.tar.gz -C .next/standalone .
-scp kpi-bundle.tar.gz user@server:/srv/kpi-system/
+scp kpi-bundle.tar.gz user@server:/var/www/kpi-system/
 
 # บนเซิร์ฟเวอร์
-cd /srv/kpi-system
+cd /var/www/kpi-system
 rm -rf .next node_modules public server.js package.json ecosystem.config.js
 tar -xzf kpi-bundle.tar.gz && rm kpi-bundle.tar.gz
 PORT=3777 pm2 startOrReload ecosystem.config.js --update-env && pm2 save
@@ -115,10 +115,10 @@ workflow: `.github/workflows/deploy.yml` — รันด้วยมือท�
 | `DEPLOY_PASSWORD` | ✅ | รหัสผ่านยืนยันก่อน deploy |
 | `SSH_PRIVATE_KEY` | ✅ | private key ทั้งไฟล์ รวมบรรทัด `-----BEGIN...` / `-----END...` (ห้ามมี passphrase) |
 | `SSH_HOST` | ✅ | IP หรือโดเมนของเซิร์ฟเวอร์ |
-| `SSH_USER` | ✅ | ผู้ใช้ที่เป็นเจ้าของ `/srv/kpi-system` และเป็นคนรัน pm2 |
+| `SSH_USER` | ✅ | ผู้ใช้ที่เป็นเจ้าของ `/var/www/kpi-system` และเป็นคนรัน pm2 |
 | `DATABASE_URL` | – | ใส่แล้วจะ migrate ให้อัตโนมัติผ่าน ssh tunnel (สายเดียวกับใน `.env` บนเซิร์ฟเวอร์) ไม่ใส่ = ข้าม ต้อง migrate เอง |
 | `SSH_PORT` | – | ไม่ตั้ง = `22` |
-| `APP_DIR` | – | ไม่ตั้ง = `/srv/kpi-system` |
+| `APP_DIR` | – | ไม่ตั้ง = `/var/www/kpi-system` |
 | `PM2_NAME` | – | ไม่ตั้ง = `kpi-system` |
 | `APP_PORT` | – | ไม่ตั้ง = `3777` |
 
@@ -149,7 +149,7 @@ npm run db:backup          # ได้ไฟล์ backups/kpi-<เวลา>.sq
 gunzip -c backups/kpi-2569-01-01T00-00-00.sql.gz | psql "$DATABASE_URL"
 ```
 
-ตั้ง cron รายวัน: `0 3 * * * cd /srv/kpi-system && npm run db:backup`
+ตั้ง cron รายวัน: `0 3 * * * cd /var/www/kpi-system && npm run db:backup`
 
 ## รันบนเครื่องตัวเอง (dev)
 
