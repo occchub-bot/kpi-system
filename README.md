@@ -122,6 +122,24 @@ pm2 รันในสิทธิ์ user เดียวกับที่ ssh
 เอา **ไฟล์ private key** (`~/.ssh/kpi_deploy` ไม่ใช่ `.pub`) ไปใส่ใน secret `SSH_PRIVATE_KEY`
 `.env` บนเซิร์ฟเวอร์ถูก gitignore ไว้ `git reset --hard` จึงไม่ทับ
 
+`APP_DIR` **ต้องเป็น git clone ของ repo นี้** — ถ้าไม่ใช่ (เช่นอัปโหลดไฟล์ขึ้นไปเอง)
+`git fetch` จะล้มด้วย `fatal: not a git repository` workflow จัดการให้เองเฉพาะตอนโฟลเดอร์
+ยังว่าง (หรือมีแค่ `.env`) — จะ `git init` + ผูก origin ให้ ถ้ามีไฟล์อื่นอยู่แล้วและไม่ใช่โค้ด
+โปรเจกต์นี้ จะหยุดพร้อมบอกให้ไปตรวจ secret `APP_DIR` แทนการเขียนทับ
+
+แก้ด้วยมือบนเซิร์ฟเวอร์ก็ได้ (ครั้งเดียว):
+
+```bash
+cd /srv/kpi-system                 # ให้ตรงกับ APP_DIR
+git init
+git remote add origin https://github.com/occchub-bot/kpi-system.git
+git fetch origin
+git reset --hard origin/main       # .env ไม่โดนทับ
+```
+
+repo นี้เป็น public เซิร์ฟเวอร์จึง clone ผ่าน HTTPS ได้เลยไม่ต้องมีคีย์
+ถ้าเปลี่ยนเป็น private ต้องตั้ง deploy key ให้เซิร์ฟเวอร์ก่อน แล้วใช้ remote แบบ `git@github.com:`
+
 ### 7. สำรอง / กู้คืนข้อมูล
 
 ต้องมี `pg_dump` ใน PATH (แพ็กเกจ `postgresql-client`)

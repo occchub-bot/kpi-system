@@ -65,15 +65,35 @@ jobs:
           APP_PORT: ${{ secrets.APP_PORT || '3777' }}
           BRANCH: ${{ github.ref_name }}
           RUN_SEED: ${{ inputs.seed }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
         run: |
-          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" APP_DIR="$APP_DIR" PM2_NAME="$PM2_NAME" APP_PORT="$APP_PORT" BRANCH="$BRANCH" RUN_SEED="$RUN_SEED" 'bash -ex -s' <<'REMOTE'
+          ssh -i ~/.ssh/id_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" APP_DIR="$APP_DIR" PM2_NAME="$PM2_NAME" APP_PORT="$APP_PORT" BRANCH="$BRANCH" RUN_SEED="$RUN_SEED" REPO_URL="$REPO_URL" 'bash -ex -s' <<'REMOTE'
           # ssh แบบ non-interactive ไม่โหลด .bashrc ให้ครบ ถ้าใช้ nvm ต้อง source เอง
           if [ -s "$HOME/.nvm/nvm.sh" ]; then . "$HOME/.nvm/nvm.sh"; fi
           export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
 
+          mkdir -p "$APP_DIR"
           cd "$APP_DIR"
+
+          # deploy ครั้งแรก: โฟลเดอร์ยังไม่ใช่ git repo -> ผูกกับ origin ให้เอง
+          # กันกรณี secret APP_DIR ชี้ผิดโฟลเดอร์: ยอม init เฉพาะตอนโฟลเดอร์ว่าง
+          # (ไม่นับ .env) หรือเป็นโค้ดโปรเจกต์นี้อยู่แล้วเท่านั้น
+          if [ ! -d .git ]; then
+            if [ -n "$(ls -A . | grep -v '^\.env$' || true)" ] \
+               && ! grep -q '"name": *"kpi-system"' package.json 2>/dev/null; then
+              echo "::error::$APP_DIR ไม่ใช่ git repo และไม่ใช่โฟลเดอร์ของโปรเจกต์นี้ — ตรวจ secret APP_DIR"
+              exit 1
+            fi
+            git init -q
+            git remote add origin "$REPO_URL"
+          fi
+          git remote set-url origin "$REPO_URL"
+
           git fetch --prune origin
-          git checkout -B "$BRANCH" "origin/$BRANCH"   # .env ถูก gitignore ไว้ ไม่โดนทับ
+          # ไม่ใช้ checkout -B เพราะ deploy ครั้งแรกยังไม่มี HEAD และไฟล์เดิมที่ไม่ได้ track
+          # จะทำให้ checkout ปฏิเสธ — reset --hard เขียนทับให้หมด (.env ถูก gitignore ไว้ ไม่โดนทับ)
+          git symbolic-ref HEAD "refs/heads/$BRANCH"
+          git reset --hard "origin/$BRANCH"
 
           npm ci
           npm run db:migrate            # ต้องรันก่อน build เสมอ
